@@ -1,0 +1,17 @@
+# Base de datos local SQLite (los datos viven en Azure PostgreSQL)
+upgrade_ms.db
+*.db
+
+# Logs del servidor local
+server.log
+server.err.log
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Excel de origen (datos de clientes: NO subir al repo)
+*.xlsx
