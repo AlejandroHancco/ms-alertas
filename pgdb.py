@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS comunicados(
   observaciones TEXT,
   kql TEXT,
   origen TEXT DEFAULT 'excel',
+  afecta_todas INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (to_char(now(),'YYYY-MM-DD"T"HH24:MI:SS'))
 );
 CREATE TABLE IF NOT EXISTS clientes(
@@ -228,6 +229,7 @@ CREATE INDEX IF NOT EXISTS ix_rec_sub ON recursos(suscripcion);
 CREATE INDEX IF NOT EXISTS ix_rec_rev ON recursos(revisado);
 CREATE INDEX IF NOT EXISTS ix_rec_inv ON recursos(inventario_id);
 CREATE INDEX IF NOT EXISTS ix_sus_cli ON suscripciones(cliente_id);
+ALTER TABLE comunicados ADD COLUMN IF NOT EXISTS afecta_todas INTEGER DEFAULT 0;
 """
 
 

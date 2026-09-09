@@ -148,10 +148,17 @@ def stats():
 # ------------------------- mutaciones -------------------------
 COM_FIELDS = ["n","titulo","categoria","fecha_recepcion","fecha_limite","resumen",
               "fuente","archivo","estado","responsable","ultima_actualizacion",
-              "proxima_actualizacion","observaciones","kql"]
+              "proxima_actualizacion","observaciones","kql","afecta_todas"]
+
+def _norm_com(data):
+    """Normaliza el flag booleano 'afecta a todas las suscripciones' a 0/1."""
+    if "afecta_todas" in data:
+        data["afecta_todas"] = 1 if data.get("afecta_todas") in (1, "1", True, "true", "on") else 0
+    return data
 
 def add_comunicado(data):
     con = db()
+    _norm_com(data)
     if not data.get("titulo"): raise ValueError("titulo requerido")
     cols = [f for f in COM_FIELDS if f in data and f != "n"]  # 'n' se autoasigna
     q = f"INSERT INTO comunicados ({','.join(cols)},origen) VALUES ({','.join('?' for _ in cols)},'manual')"
@@ -163,6 +170,7 @@ def add_comunicado(data):
 
 def update_comunicado(cid, data):
     con = db()
+    _norm_com(data)
     cols = [f for f in COM_FIELDS if f in data]
     if cols:
         con.execute(f"UPDATE comunicados SET {','.join(f+'=?' for f in cols)} WHERE id=?",
@@ -184,6 +192,50 @@ def list_clientes():
         c["n_recursos"] = con.execute("SELECT COUNT(*) FROM recursos WHERE cliente=?", (c["nombre"],)).fetchone()[0]
     con.close()
     return cls
+
+def comunicados_de_cliente(cid):
+    """Comunicados que afectan a un cliente: los que tienen recursos en alguna de sus
+    suscripciones, MÁS todos los marcados 'afecta a todas las suscripciones' (todo Azure).
+    Cada comunicado trae dos banderas: es_global (afecta a todas) y directo (toca sus subs)."""
+    con = db()
+    cli = con.execute("SELECT nombre FROM clientes WHERE id=?", (cid,)).fetchone()
+    if not cli:
+        con.close(); return {"cliente": None, "comunicados": []}
+    cli_nombre = cli["nombre"]
+    subs = con.execute("SELECT nombre, sub_id FROM suscripciones WHERE cliente_id=?", (cid,)).fetchall()
+    nombres = [s["nombre"] for s in subs if (s["nombre"] or "").strip()]
+    ids     = [s["sub_id"] for s in subs if (s["sub_id"] or "").strip()]
+
+    # condiciones de coincidencia directa (por nombre de cliente, suscripción o id)
+    conds, params = ["r.cliente = ?"], [cli_nombre]
+    if nombres:
+        conds.append("r.suscripcion IN (%s)" % ",".join("?" for _ in nombres)); params += nombres
+    if ids:
+        conds.append("r.suscripcion_id IN (%s)" % ",".join("?" for _ in ids)); params += ids
+    where_rec = " OR ".join(conds)
+
+    direct_ids = {r[0] for r in con.execute(
+        f"SELECT DISTINCT comunicado_id FROM recursos r WHERE {where_rec}", params).fetchall()}
+    global_ids = {r[0] for r in con.execute(
+        "SELECT id FROM comunicados WHERE afecta_todas=1").fetchall()}
+
+    todos = direct_ids | global_ids
+    if not todos:
+        con.close(); return {"cliente": cli_nombre, "comunicados": []}
+
+    ph = ",".join("?" for _ in todos)
+    rows = con.execute(
+        f"""SELECT * FROM comunicados WHERE id IN ({ph})
+            ORDER BY COALESCE(NULLIF(fecha_limite,''),'9999-99-99'), LOWER(titulo)""",
+        list(todos)).fetchall()
+    con.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["es_global"] = 1 if d["id"] in global_ids else 0
+        d["directo"]   = 1 if d["id"] in direct_ids else 0
+        out.append(d)
+    return {"cliente": cli_nombre, "comunicados": out}
 
 def suscripciones_sin_cliente():
     """Suscripciones presentes en recursos que no están mapeadas a ningún cliente."""
@@ -518,6 +570,8 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 if p == "/api/stats": return self._send(200, stats())
                 if p == "/api/clientes": return self._send(200, list_clientes())
+                m = re.match(r"/api/clientes/(\d+)/comunicados$", p)
+                if m: return self._send(200, comunicados_de_cliente(int(m.group(1))))
                 if p == "/api/miembros": return self._send(200, list_miembros())
                 if p == "/api/suscripciones-sin-cliente": return self._send(200, suscripciones_sin_cliente())
                 if p == "/api/comunicados": return self._send(200, list_comunicados())

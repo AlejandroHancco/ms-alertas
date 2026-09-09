@@ -202,6 +202,17 @@ h1.page{font-size:var(--fs-h1);font-weight:600;margin:0 0 var(--sp-1);letter-spa
 .link-ghost{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:var(--fs-label);font-weight:600;padding:4px 6px;border-radius:var(--r-sm)}
 .link-ghost:hover{color:var(--accent);text-decoration:underline}
 .sincli-foot{margin-top:var(--sp-4)}
+/* comunicados que afectan al cliente (dentro del desplegable) */
+.cli-coms{margin-top:var(--sp-3)}
+.cli-coms-head{display:flex;align-items:center;gap:var(--sp-2);color:var(--text-muted);font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-bottom:6px}
+.cli-coms-head .icon{width:15px;height:15px;flex:none}
+.cli-coms-tbl .clicom-row{cursor:pointer}
+.cli-coms-tbl .cc-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tag-all{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--r-full);background:var(--accent-deep,var(--surface-2));color:var(--accent);border:1px solid var(--accent)}
+/* casilla "afecta a todo Azure" en el formulario de comunicado */
+.afecta-all{display:flex;align-items:center;gap:var(--sp-3);padding:10px 12px;margin-bottom:var(--sp-4);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer}
+.afecta-all input{width:17px;height:17px;flex:none;cursor:pointer}
+.afecta-all span{font-size:var(--fs-label)}
 tr.sel{background:var(--accent-deep)!important}
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--accent)}
@@ -449,6 +460,7 @@ async function loadAll(){
   const [st,co,cl,mi]=await Promise.all([api('/api/stats'),api('/api/comunicados'),
     api('/api/clientes').catch(()=>[]),api('/api/miembros').catch(()=>[])]);
   STATE.stats=st;STATE.comunicados=co;CLI.list=cl;MIEM.list=mi;   // caché para el buscador global
+  CLI.coms={};   // invalida los comunicados por cliente: pudieron cambiar
   $('#genfoot').textContent='Base local · '+STATE.comunicados.length+' comunicados';
 }
 
@@ -1122,7 +1134,7 @@ async function delMiem(id){
 function gotoMiembros(term){MIEM.pendingQ=term||'';navigate('/miembros');}
 
 // ---------- PÁGINA CLIENTES (tabla con desplegables) ----------
-let CLI={list:[],expanded:new Set()};
+let CLI={list:[],expanded:new Set(),coms:{}};
 async function renderClientes(){
   try{CLI.list=await api('/api/clientes');}catch(e){$('#content').innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;return;}
   const nsub=CLI.list.reduce((a,c)=>a+c.suscripciones.length,0);
@@ -1235,6 +1247,30 @@ function renderCliList(){
   const list=CLI.list.filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.suscripciones.some(s=>(s.nombre||'').toLowerCase().includes(q)||(s.sub_id||'').toLowerCase().includes(q)));
   const el=$('#cliList');if(!el)return;
   el.innerHTML=list.map(c=>cliRow(c,q)).join('')||'<tr><td colspan="4"><div class="empty-state">Sin clientes que coincidan.</div></td></tr>';
+  // carga perezosa de comunicados para los clientes expandidos aún sin caché
+  list.forEach(c=>{if((q?true:CLI.expanded.has(c.id))&&CLI.coms[c.id]===undefined)loadCliComs(c.id);});
+}
+async function loadCliComs(id){
+  CLI.coms[id]='loading';   // marca en curso para no re-disparar la carga
+  try{CLI.coms[id]=await api(`/api/clientes/${id}/comunicados`);}
+  catch(e){CLI.coms[id]={error:e.message};}
+  renderCliList();
+}
+function cliComsHTML(c){
+  const d=CLI.coms[c.id];
+  const head=`<div class="cli-coms-head">${svg('notice','icon')}Comunicados que le afectan</div>`;
+  if(d===undefined||d==='loading')return `<div class="cli-coms">${head}<div class="caption" style="padding:8px 4px">Cargando…</div></div>`;
+  if(d.error)return `<div class="cli-coms">${head}<div class="caption" style="padding:8px 4px">Error: ${esc(d.error)}</div></div>`;
+  const coms=d.comunicados||[];
+  if(!coms.length)return `<div class="cli-coms">${head}<div class="caption" style="padding:8px 4px">Ningún comunicado le afecta todavía.</div></div>`;
+  const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecursos(${m.id})" title="Ver detalle del comunicado">
+     <td class="cc-title"><b>${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
+     <td>${m.categoria?catBadge(m.categoria):''}</td>
+     <td class="mono ${m.fecha_limite?'':'empty'}">${m.fecha_limite?esc(m.fecha_limite):'—'}</td>
+   </tr>`).join('');
+  return `<div class="cli-coms">${head}
+    <table class="subtbl cli-coms-tbl"><thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:120px">Fecha límite</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
 }
 function cliRow(c,q){
   const open=q?true:CLI.expanded.has(c.id);   // al buscar, se expande para ver coincidencias
@@ -1254,7 +1290,8 @@ function cliRow(c,q){
           <td><input id="si_${c.id}" class="mono" placeholder="ID de la suscripción"></td>
           <td><button class="btn sm" onclick="addSub(${c.id})">${svg('add')}Agregar</button></td>
         </tr>
-      </tbody></table></td></tr>`;
+      </tbody></table>
+      ${cliComsHTML(c)}</td></tr>`;
   return `<tr class="clirow ${open?'open':''}" onclick="if(!event.target.closest('.acts'))toggleCli(${c.id})">
     <td class="chev-cell"><span class="chev-ic">${svg('chev','icon')}</span></td>
     <td><b>${hl(c.nombre,q)}</b> <span class="cli-count">(${c.suscripciones.length})</span></td>
@@ -1364,7 +1401,12 @@ async function openForm(id){
         <div class="sub">${id?`#${id} · editar comunicado`:'Nuevo comunicado'}</div>
       </div>
       <button class="x" onclick="closeModal()">${svg('close')}</button></div>
-    <div class="mbody"><div class="form-2col">
+    <div class="mbody">
+      <label class="afecta-all">
+        <input type="checkbox" id="f_afecta_todas" ${c.afecta_todas?'checked':''}>
+        <span><b>Afecta a todo Azure</b> — aplica a todas las suscripciones de todos los clientes.</span>
+      </label>
+      <div class="form-2col">
       <div class="col">
         ${f('categoria','Categoría')}
         <div class="field-pair">${f('fecha_recepcion','Fecha recepción')}${f('fecha_limite','Fecha límite')}</div>
@@ -1407,6 +1449,7 @@ function downloadTemplate(){
 async function saveCom(id){
   const data={};F.forEach(x=>{if(x[0]==='fuente')return;const el=$('#f_'+x[0]);if(el)data[x[0]]=el.value.trim();});
   data.fuente=getFuente();
+  data.afecta_todas=$('#f_afecta_todas')?.checked?1:0;
   if(!data.titulo){showFormErr('El título (nombre del comunicado) es obligatorio.');return;}
   const file=$('#f_file').files[0];
   const replace=$('#f_replace')?.checked;
