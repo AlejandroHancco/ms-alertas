@@ -209,6 +209,12 @@ h1.page{font-size:var(--fs-h1);font-weight:600;margin:0 0 var(--sp-1);letter-spa
 .cli-coms-tbl .clicom-row{cursor:pointer}
 .cli-coms-tbl .cc-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .tag-all{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--r-full);background:var(--accent-deep,var(--surface-2));color:var(--accent);border:1px solid var(--accent)}
+.cli-coms-tbl .cc-due{white-space:nowrap;color:var(--text)}
+.cli-coms-tbl .cc-due.empty{color:var(--text-muted)}
+/* acciones alineadas al borde derecho (tablas de clientes) */
+.clitbl th:last-child{text-align:right}
+.clitbl td:has(.acts),.subtbl td:has(.acts){text-align:right}
+.clitbl .acts,.subtbl .acts{justify-content:flex-end}
 /* casilla "afecta a todo Azure" en el formulario de comunicado */
 .afecta-all{display:flex;align-items:center;gap:var(--sp-3);padding:10px 12px;margin-bottom:var(--sp-4);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer}
 .afecta-all input{width:17px;height:17px;flex:none;cursor:pointer}
@@ -442,6 +448,15 @@ function fmtInv(ts){                       // "2026-09-03T10:31:00" -> "3 sep 20
   const d=new Date(ts.replace(' ','T'));
   if(isNaN(d))return esc(ts.slice(0,10));
   return d.toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'});
+}
+const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','setiembre','octubre','noviembre','diciembre'];
+function fmtFechaLarga(s){                  // "2025-09-20" -> "20 de setiembre de 2025"
+  if(!s)return'';
+  const m=String(s).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m)return esc(String(s));
+  const y=+m[1],mo=+m[2],d=+m[3];
+  if(mo<1||mo>12)return esc(String(s));
+  return `${d} de ${MESES[mo-1]} de ${y}`;
 }
 function invAgo(ts){                        // texto relativo: "hoy", "hace 3 d"
   if(!ts)return'';
@@ -1266,10 +1281,10 @@ function cliComsHTML(c){
   const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecursos(${m.id})" title="Ver detalle del comunicado">
      <td class="cc-title"><b>${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
      <td>${m.categoria?catBadge(m.categoria):''}</td>
-     <td class="mono ${m.fecha_limite?'':'empty'}">${m.fecha_limite?esc(m.fecha_limite):'—'}</td>
+     <td class="cc-due ${m.fecha_limite?'':'empty'}">${m.fecha_limite?fmtFechaLarga(m.fecha_limite):'—'}</td>
    </tr>`).join('');
   return `<div class="cli-coms">${head}
-    <table class="subtbl cli-coms-tbl"><thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:120px">Fecha límite</th></tr></thead>
+    <table class="subtbl cli-coms-tbl"><thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:180px">Fecha límite</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 function cliRow(c,q){
