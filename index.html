@@ -181,6 +181,8 @@ h1.page{font-size:var(--fs-h1);font-weight:600;margin:0 0 var(--sp-1);letter-spa
 /* ===== Página de clientes (tabla con desplegables) ===== */
 .clitbl td{vertical-align:middle}
 .cli-count{color:var(--text-muted);font-family:var(--font-mono);font-size:13px}
+.cli-namelink{cursor:pointer;border-bottom:1px dashed transparent}
+.cli-namelink:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .clirow{cursor:pointer}
 .clirow:hover{background:var(--surface-2)}
 .clirow.open{background:var(--surface-2)}
@@ -203,9 +205,6 @@ h1.page{font-size:var(--fs-h1);font-weight:600;margin:0 0 var(--sp-1);letter-spa
 .link-ghost:hover{color:var(--accent);text-decoration:underline}
 .sincli-foot{margin-top:var(--sp-4)}
 /* comunicados que afectan al cliente (dentro del desplegable) */
-.cli-coms{margin-top:var(--sp-3)}
-.cli-coms-head{display:flex;align-items:center;gap:var(--sp-2);color:var(--text-muted);font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.04em;font-weight:700;margin-bottom:6px}
-.cli-coms-head .icon{width:15px;height:15px;flex:none}
 .cli-coms-tbl .clicom-row{cursor:pointer}
 .cli-coms-tbl .cc-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .tag-all{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--r-full);background:var(--accent-deep,var(--surface-2));color:var(--accent);border:1px solid var(--accent)}
@@ -475,7 +474,6 @@ async function loadAll(){
   const [st,co,cl,mi]=await Promise.all([api('/api/stats'),api('/api/comunicados'),
     api('/api/clientes').catch(()=>[]),api('/api/miembros').catch(()=>[])]);
   STATE.stats=st;STATE.comunicados=co;CLI.list=cl;MIEM.list=mi;   // caché para el buscador global
-  CLI.coms={};   // invalida los comunicados por cliente: pudieron cambiar
   $('#genfoot').textContent='Base local · '+STATE.comunicados.length+' comunicados';
 }
 
@@ -494,6 +492,11 @@ async function route(){
     STATE.view='recursos';render();
   }else if(p==='/comunicados'){
     STATE.view='comunicados';setNav('comunicados');render();
+  }else if(m=p.match(/^\/clientes\/(\d+)\/comunicados$/)){
+    setNav('clientes');
+    await loadCliComs(+m[1]);             // carga comunicados que afectan al cliente
+    if(!CLIDET.ok){navigate('/clientes');return;}
+    STATE.view='clicom';render();
   }else if(p==='/clientes'){
     STATE.view='clientes';setNav('clientes');render();
   }else if(p==='/miembros'){
@@ -597,6 +600,7 @@ function render(){
   if(STATE.view==='dashboard')renderDashboard();
   else if(STATE.view==='recursos'&&RES.com)renderRecursos();
   else if(STATE.view==='clientes')renderClientes();
+  else if(STATE.view==='clicom')renderCliComs();
   else if(STATE.view==='miembros')renderMiembros();
   else renderComunicados();
 }
@@ -1149,7 +1153,7 @@ async function delMiem(id){
 function gotoMiembros(term){MIEM.pendingQ=term||'';navigate('/miembros');}
 
 // ---------- PÁGINA CLIENTES (tabla con desplegables) ----------
-let CLI={list:[],expanded:new Set(),coms:{}};
+let CLI={list:[],expanded:new Set()};
 async function renderClientes(){
   try{CLI.list=await api('/api/clientes');}catch(e){$('#content').innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;return;}
   const nsub=CLI.list.reduce((a,c)=>a+c.suscripciones.length,0);
@@ -1262,30 +1266,31 @@ function renderCliList(){
   const list=CLI.list.filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.suscripciones.some(s=>(s.nombre||'').toLowerCase().includes(q)||(s.sub_id||'').toLowerCase().includes(q)));
   const el=$('#cliList');if(!el)return;
   el.innerHTML=list.map(c=>cliRow(c,q)).join('')||'<tr><td colspan="4"><div class="empty-state">Sin clientes que coincidan.</div></td></tr>';
-  // carga perezosa de comunicados para los clientes expandidos aún sin caché
-  list.forEach(c=>{if((q?true:CLI.expanded.has(c.id))&&CLI.coms[c.id]===undefined)loadCliComs(c.id);});
 }
+let CLIDET={id:null,cliente:null,comunicados:[],ok:false};
 async function loadCliComs(id){
-  CLI.coms[id]='loading';   // marca en curso para no re-disparar la carga
-  try{CLI.coms[id]=await api(`/api/clientes/${id}/comunicados`);}
-  catch(e){CLI.coms[id]={error:e.message};}
-  renderCliList();
+  try{const d=await api(`/api/clientes/${id}/comunicados`);
+    CLIDET={id,cliente:d.cliente,comunicados:d.comunicados||[],ok:d.cliente!=null};
+  }catch(e){CLIDET={id,cliente:null,comunicados:[],ok:false};toast('Error: '+e.message);}
 }
-function cliComsHTML(c){
-  const d=CLI.coms[c.id];
-  const head=`<div class="cli-coms-head">${svg('notice','icon')}Comunicados que le afectan</div>`;
-  if(d===undefined||d==='loading')return `<div class="cli-coms">${head}<div class="caption" style="padding:8px 4px">Cargando…</div></div>`;
-  if(d.error)return `<div class="cli-coms">${head}<div class="caption" style="padding:8px 4px">Error: ${esc(d.error)}</div></div>`;
-  const coms=d.comunicados||[];
-  if(!coms.length)return `<div class="cli-coms">${head}<div class="caption" style="padding:8px 4px">Ningún comunicado le afecta todavía.</div></div>`;
+function openCliComs(id){navigate('/clientes/'+id+'/comunicados');}   // vista aparte al hacer clic en el nombre
+function renderCliComs(){
+  const d=CLIDET,coms=d.comunicados||[];
   const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecursos(${m.id})" title="Ver detalle del comunicado">
      <td class="cc-title"><b>${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
      <td>${m.categoria?catBadge(m.categoria):''}</td>
+     <td>${m.estado?esc(m.estado):'<span class="caption">—</span>'}</td>
      <td class="cc-due ${m.fecha_limite?'':'empty'}">${m.fecha_limite?fmtFechaLarga(m.fecha_limite):'—'}</td>
    </tr>`).join('');
-  return `<div class="cli-coms">${head}
-    <table class="subtbl cli-coms-tbl"><thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:180px">Fecha límite</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+  $('#content').innerHTML=`
+    <button class="back-link" onclick="navigate('/clientes')"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Clientes</button>
+    <div class="rechead"><h1 class="page" style="margin:0">${esc(d.cliente||'Cliente')}</h1>
+      <div class="statstrip"><b>${coms.length}</b> comunicado(s) que le afectan</div></div>
+    <div class="page-sub">Comunicados con recursos en sus suscripciones, más los marcados “Afecta a todo Azure”.</div>
+    ${coms.length?`<div class="tblwrap" style="max-height:none"><table class="clitbl cli-coms-tbl">
+      <thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:150px">Estado</th><th style="width:200px">Fecha límite</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+     :'<div class="empty-state">Ningún comunicado le afecta todavía.</div>'}`;
 }
 function cliRow(c,q){
   const open=q?true:CLI.expanded.has(c.id);   // al buscar, se expande para ver coincidencias
@@ -1305,11 +1310,10 @@ function cliRow(c,q){
           <td><input id="si_${c.id}" class="mono" placeholder="ID de la suscripción"></td>
           <td><button class="btn sm" onclick="addSub(${c.id})">${svg('add')}Agregar</button></td>
         </tr>
-      </tbody></table>
-      ${cliComsHTML(c)}</td></tr>`;
-  return `<tr class="clirow ${open?'open':''}" onclick="if(!event.target.closest('.acts'))toggleCli(${c.id})">
+      </tbody></table></td></tr>`;
+  return `<tr class="clirow ${open?'open':''}" onclick="if(!event.target.closest('.acts')&&!event.target.closest('.cli-namelink'))toggleCli(${c.id})">
     <td class="chev-cell"><span class="chev-ic">${svg('chev','icon')}</span></td>
-    <td><b>${hl(c.nombre,q)}</b> <span class="cli-count">(${c.suscripciones.length})</span></td>
+    <td><b class="cli-namelink" title="Ver comunicados que le afectan" onclick="event.stopPropagation();openCliComs(${c.id})">${hl(c.nombre,q)}</b> <span class="cli-count">(${c.suscripciones.length})</span></td>
     <td class="mono ${c.ext_id?'':'empty'}">${c.ext_id?esc(c.ext_id):'—'}</td>
     <td><div class="acts">
       <button class="btn sm btn-icon" title="Editar cliente" onclick="openCliForm(${c.id})">${svg('edit')}</button>
