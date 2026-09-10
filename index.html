@@ -211,9 +211,9 @@ h1.page{font-size:var(--fs-h1);font-weight:600;margin:0 0 var(--sp-1);letter-spa
 .cli-coms-tbl .cc-due{white-space:nowrap;color:var(--text)}
 .cli-coms-tbl .cc-due.empty{color:var(--text-muted)}
 /* acciones alineadas al borde derecho (tablas de clientes) */
-.clitbl th:last-child{text-align:right}
-.clitbl td:has(.acts),.subtbl td:has(.acts){text-align:right}
-.clitbl .acts,.subtbl .acts{justify-content:flex-end}
+.clitbl th:last-child,.comtbl th:last-child{text-align:right}
+.clitbl td:has(.acts),.subtbl td:has(.acts),.comtbl td:has(.acts){text-align:right}
+.clitbl .acts,.subtbl .acts,.comtbl .acts{justify-content:flex-end}
 /* casilla "afecta a todo Azure" en el formulario de comunicado */
 .afecta-all{display:flex;align-items:center;gap:var(--sp-3);padding:10px 12px;margin-bottom:var(--sp-4);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-md);cursor:pointer}
 .afecta-all input{width:17px;height:17px;flex:none;cursor:pointer}
@@ -746,7 +746,7 @@ function renderComunicados(){
       <table class="comtbl">
         <thead><tr>
           <th style="width:56px">N°</th><th>Comunicado</th><th style="width:210px">Categoría</th>
-          <th style="width:130px">Fecha límite</th><th style="width:180px">Revisión</th><th style="width:200px">Acciones</th>
+          <th style="width:190px">Fecha límite</th><th style="width:180px">Revisión</th><th style="width:120px">Acciones</th>
         </tr></thead>
         <tbody>${list.map(comRow).join('')||'<tr><td colspan="6"><div class="empty-state">Sin resultados para estos filtros.</div></td></tr>'}</tbody>
       </table></div>`;
@@ -768,7 +768,7 @@ function comRow(c){
   const q=STATE.q.trim();
   const pct=c.n_recursos?Math.round(c.n_revisados/c.n_recursos*100):0;
   const cl=dueClass(c.fecha_limite);
-  const due=c.fecha_limite?`<span class="status ${cl==='--danger'?'status--danger':cl==='--warn'?'status--warn':'status--ok'}">${svg('clock')}${esc(c.fecha_limite)}</span>`:'<span class="caption">—</span>';
+  const due=c.fecha_limite?`<span class="status ${cl==='--danger'?'status--danger':cl==='--warn'?'status--warn':'status--ok'}">${svg('clock')}${fmtFechaLarga(c.fecha_limite)}</span>`:'<span class="caption">—</span>';
   const rec=c.n_recursos
     ?`<div class="cellprog"><div class="track"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div><span class="mono">${c.n_revisados}/${c.n_recursos}</span></div>`
     :'<span class="caption">sin recursos</span>';
