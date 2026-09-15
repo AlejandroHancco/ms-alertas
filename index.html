@@ -380,8 +380,8 @@ mark{background:#fff0b3;color:#172b4d;border-radius:2px;padding:0 1px}
   <aside class="sidebar">
     <div class="brand"><span id="brandIcon"></span><b>Upgrade MS</b></div>
     <button class="nav-item active" data-view="dashboard"><span data-ic="dashboard"></span>Dashboard</button>
-    <button class="nav-item" data-view="comunicados"><span data-ic="notice"></span>Comunicados</button>
     <button class="nav-item" data-view="clientes"><span data-ic="building"></span>Clientes</button>
+    <button class="nav-item" data-view="comunicados"><span data-ic="notice"></span>Todos los comunicados</button>
     <button class="nav-item" data-view="miembros"><span data-ic="team"></span>Miembros</button>
     <div class="spacer"></div>
     <div class="foot" id="genfoot"></div>
@@ -463,7 +463,6 @@ function invAgo(ts){                        // texto relativo: "hoy", "hace 3 d"
   return days<=0?'hoy':days===1?'ayer':`hace ${days} d`;
 }
 function dueClass(d){if(!d)return'';return d<today?'--danger':(d<=new Date(Date.now()+30*864e5).toISOString().slice(0,10)?'--warn':'--ok');}
-function pctClass(p){return p>=90?'kpi--ok':p>=50?'kpi--warn':'kpi--danger';}
 const CAT_COLORS={"Compute":"#58a6ff","Almacenamiento":"#d29922","Redes":"#2dd4bf","Bases de datos":"#a78bfa","Datos y Analítica":"#f778ba","Contenedores":"#3fb950","Seguridad e Identidad":"#f85149","Gobernanza y Monitoreo":"#79c0ff","FinOps y Reservas":"#e3b341","Otros":"#8b98a9"};
 function catColor(c){return CAT_COLORS[c]||"#8b98a9";}
 function catBadge(c){return c?`<span class="cbadge" style="--c:${catColor(c)}">${esc(c)}</span>`:'<span class="caption">—</span>';}
@@ -471,9 +470,9 @@ function catBadge(c){return c?`<span class="cbadge" style="--c:${catColor(c)}">$
 let STATE={view:'dashboard',stats:null,comunicados:[],q:'',cat:'',est:'faltan',verVenc:false,recSort:{col:null,dir:1}};
 
 async function loadAll(){
-  const [st,co,cl,mi]=await Promise.all([api('/api/stats'),api('/api/comunicados'),
-    api('/api/clientes').catch(()=>[]),api('/api/miembros').catch(()=>[])]);
-  STATE.stats=st;STATE.comunicados=co;CLI.list=cl;MIEM.list=mi;   // caché para el buscador global
+  const [st,co,cl,mi,sc]=await Promise.all([api('/api/stats'),api('/api/comunicados'),
+    api('/api/clientes').catch(()=>[]),api('/api/miembros').catch(()=>[]),api('/api/stats/clientes').catch(()=>[])]);
+  STATE.stats=st;STATE.comunicados=co;STATE.statsCli=sc;CLI.list=cl;MIEM.list=mi;   // caché para el buscador global
   $('#genfoot').textContent='Base local · '+STATE.comunicados.length+' comunicados';
 }
 
@@ -486,9 +485,9 @@ async function route(){
   const p=location.pathname.replace(/\/+$/,'')||'/';
   let m;
   if(m=p.match(/^\/comunicados\/(\d+)\/recursos$/)){
-    setNav('comunicados');
+    setNav(RES.backPath.startsWith('/clientes')||RES.backPath.startsWith('/suscripciones')?'clientes':'comunicados');
     await loadRecursos(+m[1]);           // carga recursos del comunicado
-    if(!RES.com){navigate('/comunicados');return;}
+    if(!RES.com){navigate(RES.backPath);return;}
     STATE.view='recursos';render();
   }else if(p==='/comunicados'){
     STATE.view='comunicados';setNav('comunicados');render();
@@ -497,6 +496,11 @@ async function route(){
     await loadCliComs(+m[1]);             // carga comunicados que afectan al cliente
     if(!CLIDET.ok){navigate('/clientes');return;}
     STATE.view='clicom';render();
+  }else if(m=p.match(/^\/suscripciones\/(\d+)\/comunicados$/)){
+    setNav('clientes');
+    await loadSubComs(+m[1]);             // carga comunicados que afectan a la suscripción
+    if(!SUBDET.ok){navigate('/clientes');return;}
+    STATE.view='subcom';render();
   }else if(p==='/clientes'){
     STATE.view='clientes';setNav('clientes');render();
   }else if(p==='/miembros'){
@@ -526,11 +530,11 @@ function gsSources(q){
     if((c.nombre||'').toLowerCase().includes(ql)||(c.ext_id||'').toLowerCase().includes(ql))
       out.push({type:'Cliente',icon:'building',name:c.nombre,
         sub:(c.suscripciones?.length||0)+' suscripción(es)'+(c.ext_id?' · '+c.ext_id:''),
-        run:()=>gotoCli(c.nombre)});
+        run:()=>openCliComs(c.id)});
     (c.suscripciones||[]).forEach(s=>{
       if((s.nombre||'').toLowerCase().includes(ql)||(s.sub_id||'').toLowerCase().includes(ql))
         out.push({type:'Suscripción',icon:'subscription',name:s.nombre||s.sub_id||'(sin nombre)',
-          sub:'Cliente: '+c.nombre,run:()=>gotoCli(s.nombre||s.sub_id||c.nombre)});
+          sub:'Cliente: '+c.nombre,run:()=>openSubComs(s.id)});
     });
   });
   // Miembros de la plataforma
@@ -554,7 +558,6 @@ function gsSources(q){
       run:()=>{STATE.cat=cat;STATE.q='';STATE.est='';STATE.verVenc=true;navigate('/comunicados');}}));
   return out;
 }
-function gotoCli(term){CLI.pendingQ=term||'';navigate('/clientes');}
 function gotoComQ(term){STATE.q=term||'';STATE.cat='';STATE.est='';STATE.verVenc=true;navigate('/comunicados');}
 function gsRender(raw){
   const box=$('#gsResults'),q=(raw||'').trim();
@@ -601,21 +604,22 @@ function render(){
   else if(STATE.view==='recursos'&&RES.com)renderRecursos();
   else if(STATE.view==='clientes')renderClientes();
   else if(STATE.view==='clicom')renderCliComs();
+  else if(STATE.view==='subcom')renderSubComs();
   else if(STATE.view==='miembros')renderMiembros();
   else renderComunicados();
 }
 
 // ---------- DASHBOARD ----------
-function donut(segs,size=170,stroke=22){
+function donut(segs,size=170,stroke=22,label='REVISADO'){
   const r=(size-stroke)/2,C=2*Math.PI*r,cx=size/2,cy=size/2;
   const total=segs.reduce((a,s)=>a+s.value,0)||1;let acc=0;
   const arcs=segs.filter(s=>s.value>0).map(s=>{const f=s.value/total,dash=f*C,rot=acc*360-90;acc+=f;
     return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${stroke}" stroke-dasharray="${dash.toFixed(2)} ${(C-dash).toFixed(2)}" transform="rotate(${rot} ${cx} ${cy})"/>`;}).join('');
   const pct=Math.round((segs[0].value/total)*100);
-  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="Revisado ${pct}%">
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${esc(label)} ${pct}%">
     <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="${stroke}"/>${arcs}
     <text x="${cx}" y="${cy-2}" text-anchor="middle" dominant-baseline="middle" font-family="var(--font-mono)" font-size="30" font-weight="700" fill="var(--text)">${pct}%</text>
-    <text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="10" fill="var(--text-muted)" letter-spacing="1">REVISADO</text></svg>`;
+    <text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="10" fill="var(--text-muted)" letter-spacing="1">${esc(label)}</text></svg>`;
 }
 function bars(items,max,color='var(--accent)'){
   max=max||Math.max(...items.map(i=>i.value),1);
@@ -623,27 +627,27 @@ function bars(items,max,color='var(--accent)'){
     <div class="bar-track"><div class="bar-fill" style="width:${(i.value/max*100).toFixed(1)}%;${i.color?'background:'+i.color:''}"></div></div>
     <span class="bar-val">${i.value.toLocaleString()}</span></div>`).join('');
 }
-function splitBar(rev,total,max,clickAttr=''){
-  const wTot=(total/max*100).toFixed(1);
-  const wRev=total?(rev/total*100).toFixed(1):0;
-  return `<div class="bar-track" ${clickAttr}><div class="bar-outer" style="width:${wTot}%"><div class="rev" style="width:${wRev}%"></div></div></div>`;
-}
 function daysLeft(d){return Math.round((new Date(d)-new Date(today))/864e5);}
 function renderDashboard(){
   const s=STATE.stats,t=s.totales;
-  const rev=t.revisados,pend=t.pendientes;
-  const maxCat=Math.max(...s.por_categoria.map(c=>c.recursos),1);
-  const catBars=s.por_categoria.filter(c=>c.recursos>0).map(c=>{
-    const pct=c.recursos?Math.round(c.revisados/c.recursos*100):0;
+  const cli=STATE.statsCli||[];
+  const conVenc=cli.filter(c=>c.n_vencidos>0);
+  const conProx=cli.filter(c=>c.n_vencidos===0&&c.n_proximos>0);
+  const alDia=cli.filter(c=>c.n_vencidos===0&&c.n_proximos===0);
+  const maxCat=Math.max(...s.por_categoria.map(c=>c.comunicados),1);
+  const catBars=s.por_categoria.filter(c=>c.comunicados>0).map(c=>{
+    const w=(c.comunicados/maxCat*100).toFixed(1);
     return `<div class="bar-row clickable" onclick="goCat('${esc(c.categoria)}')" title="Ver comunicados · ${esc(c.categoria)}">
       <span class="bar-label">${esc(c.categoria)}</span>
-      ${splitBar(c.revisados,c.recursos,maxCat)}
-      <span class="bar-val">${c.revisados}/${c.recursos}</span></div>`;}).join('')||'<div class="empty-state">Sin datos.</div>';
-  const maxSub=Math.max(...s.por_suscripcion.map(x=>x.recursos),1);
-  const subBars=s.por_suscripcion.map(x=>{
-    return `<div class="bar-row"><span class="bar-label" title="${esc(x.suscripcion)}">${esc(x.suscripcion)}</span>
-      ${splitBar(x.revisados||0,x.recursos,maxSub)}
-      <span class="bar-val">${x.revisados||0}/${x.recursos}</span></div>`;}).join('')||'<div class="empty-state">Sin datos.</div>';
+      <div class="bar-track"><div class="bar-fill" style="width:${w}%"></div></div>
+      <span class="bar-val">${c.comunicados}</span></div>`;}).join('')||'<div class="empty-state">Sin datos.</div>';
+  const cliRowLink=c=>`<div class="dl">
+      <span class="status ${c.n_vencidos>0?'status--danger':'status--warn'}">${svg(c.n_vencidos>0?'warning':'clock')}${c.n_vencidos>0?c.n_vencidos+' vencido(s)':c.n_proximos+' próximo(s)'}</span>
+      <span class="t" title="${esc(c.nombre)}">${esc(c.nombre)}</span>
+      <span class="caption" style="white-space:nowrap">${c.n_comunicados} comunicado(s)</span>
+      <button class="btn sm" onclick="openCliComs(${c.id})">Ver ${svg('chev','icon')}</button></div>`;
+  const cliList=[...conVenc,...conProx].slice(0,8).map(cliRowLink).join('')
+    ||'<div class="empty-state" style="padding:var(--sp-4)">Ningún cliente con comunicados vencidos o próximos a vencer. 👌</div>';
   const rowLink=(p,danger)=>{
     const dl=p.fecha_limite?daysLeft(p.fecha_limite):null;
     const tag=danger
@@ -655,43 +659,34 @@ function renderDashboard(){
       <span class="caption" style="white-space:nowrap">${info}</span>
       <span class="caption mono">${p.n_revisados}/${p.n_recursos}</span>
       <button class="btn sm" onclick="${p.n_recursos?`openRecursos(${p.id})`:`openForm(${p.id})`}">Ver ${svg('chev','icon')}</button></div>`;};
-  const prox=s.proximos.map(p=>rowLink(p,false)).join('')||'<div class="empty-state">Sin próximos vencimientos.</div>';
   const venc=(s.vencidos_list||[]).map(p=>rowLink(p,true)).join('')||'<div class="empty-state" style="padding:var(--sp-4)">Nada vencido. 👌</div>';
   $('#content').innerHTML=`
     <h1 class="page">Dashboard</h1>
-    <div class="page-sub">Panorama de comunicados de Azure y avance de revisión de recursos afectados.</div>
+    <div class="page-sub">Panorama de clientes y suscripciones frente a los comunicados de Azure vigentes.</div>
     <div class="kpi-row">
-      <div class="kpi ${pctClass(t.pct_revisado)}"><span class="kpi-value">${t.pct_revisado}%</span><span class="kpi-label">Recursos revisados</span></div>
-      <div class="kpi kpi--warn clickable" role="button" tabindex="0" onclick="goRec('pend')"><span class="kpi-value">${t.pendientes.toLocaleString()}</span><span class="kpi-label">Recursos pendientes</span></div>
-      <div class="kpi ${t.vencidos>0?'kpi--danger clickable':'kpi--ok'}" ${t.vencidos>0?'role="button" tabindex="0" onclick="goRec(\'venc\')"':''}><span class="kpi-value">${t.vencidos}</span><span class="kpi-label">Comunicados vencidos</span></div>
+      <div class="kpi ${conVenc.length>0?'kpi--danger clickable':'kpi--ok'}" role="button" tabindex="0" onclick="navigate('/clientes')"><span class="kpi-value">${conVenc.length}</span><span class="kpi-label">Clientes con vencidos</span></div>
+      <div class="kpi kpi--warn clickable" role="button" tabindex="0" onclick="navigate('/clientes')"><span class="kpi-value">${conProx.length}</span><span class="kpi-label">Clientes con próximos a vencer</span></div>
       <div class="kpi-sep"></div>
-      <div class="kpi kpi--info clickable" role="button" tabindex="0" onclick="goCat('')"><span class="kpi-value">${t.comunicados}</span><span class="kpi-label">Comunicados</span></div>
-      <div class="kpi"><span class="kpi-value">${t.recursos.toLocaleString()}</span><span class="kpi-label">Recursos afectados</span></div>
+      <div class="kpi kpi--info clickable" role="button" tabindex="0" onclick="navigate('/clientes')"><span class="kpi-value">${cli.length}</span><span class="kpi-label">Total clientes</span></div>
+      <div class="kpi ${t.vencidos>0?'kpi--danger clickable':'kpi--ok'}" ${t.vencidos>0?'role="button" tabindex="0" onclick="goVencidos()"':''}><span class="kpi-value">${t.vencidos}</span><span class="kpi-label">Comunicados vencidos</span></div>
     </div>
     <div class="cards">
-      <div class="card"><div class="card__head"><div class="card__title">${svg('check')}Progreso de revisión</div><span class="caption mono">${rev}/${t.recursos}</span></div>
-        <div class="donut-wrap">${donut([{value:rev,color:'var(--ok)'},{value:pend,color:'var(--warn)'}])}
+      <div class="card"><div class="card__head"><div class="card__title">${svg('building')}Clientes por estado</div><span class="caption mono">${alDia.length}/${cli.length}</span></div>
+        <div class="donut-wrap">${donut([{value:alDia.length,color:'var(--ok)'},{value:conProx.length,color:'var(--warn)'},{value:conVenc.length,color:'var(--danger)'}],170,22,'AL DÍA')}
           <div class="legend">
-            <div><span class="dot" style="background:var(--ok)"></span>Revisados <b>${rev.toLocaleString()}</b></div>
-            <div><span class="dot" style="background:var(--warn)"></span>Pendientes <b>${pend.toLocaleString()}</b></div>
-            <div><span class="dot" style="background:var(--surface-2)"></span>Total <b>${t.recursos.toLocaleString()}</b></div>
+            <div><span class="dot" style="background:var(--ok)"></span>Al día <b>${alDia.length}</b></div>
+            <div><span class="dot" style="background:var(--warn)"></span>Con próximos <b>${conProx.length}</b></div>
+            <div><span class="dot" style="background:var(--danger)"></span>Con vencidos <b>${conVenc.length}</b></div>
           </div></div></div>
-      <div class="card"><div class="card__head"><div class="card__title">${svg('warning')}Acción requerida · vencidos</div><span class="badge" style="background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger)">${t.vencidos}</span></div>${venc}</div>
+      <div class="card"><div class="card__head"><div class="card__title">${svg('warning')}Clientes con comunicados vencidos</div><span class="badge" style="background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger)">${conVenc.length}</span></div>${cliList}</div>
     </div>
     <div class="cards">
-      <div class="card"><div class="card__head"><div class="card__title">${svg('notice')}Recursos por categoría</div><span class="caption">revisado / total</span></div>${catBars}
-        <div class="legend" style="flex-direction:row;gap:var(--sp-4);margin-top:4px"><div><span class="dot" style="background:var(--ok)"></span>Revisado</div><div><span class="dot" style="background:var(--accent)"></span>Pendiente</div></div></div>
-      <div class="card"><div class="card__head"><div class="card__title">${svg('clock')}Próximos vencimientos</div></div>${prox}</div>
-    </div>
-    <div class="card"><div class="card__head"><div class="card__title">${svg('subscription')}Suscripciones con más recursos afectados</div><span class="caption">revisado / total</span></div>${subBars}</div>`;
+      <div class="card"><div class="card__head"><div class="card__title">${svg('notice')}Comunicados vencidos</div><span class="badge" style="background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger)">${t.vencidos}</span></div>${venc}</div>
+      <div class="card"><div class="card__head"><div class="card__title">${svg('notice')}Comunicados por categoría</div></div>${catBars}</div>
+    </div>`;
 }
 function goCat(cat){STATE.cat=cat;STATE.est='';STATE.verVenc=false;STATE.q='';navigate('/comunicados');}
-function goRec(mode){
-  STATE.cat='';STATE.q='';
-  if(mode==='venc'){STATE.verVenc=true;STATE.est='';}   // ver vencidos
-  else{STATE.est='faltan';STATE.verVenc=false;}          // pendientes / los que faltan
-  navigate('/comunicados');
-}
+function goVencidos(){STATE.cat='';STATE.q='';STATE.verVenc=true;STATE.est='';navigate('/comunicados');}
 function setNav(view){document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.view===view));}
 
 // ---------- COMUNICADOS ----------
@@ -739,8 +734,8 @@ function comFilters(nShown){
 }
 function renderComunicados(){
   const list=STATE.comunicados.filter(c=>comMatch(c,STATE.q.trim().toLowerCase()));
-  $('#content').innerHTML=`<h1 class="page">Comunicados</h1>
-    <div class="page-sub">Avisos de Microsoft Azure y su seguimiento de recursos afectados.</div>
+  $('#content').innerHTML=`<h1 class="page">Todos los comunicados</h1>
+    <div class="page-sub">Vista plana de auditoría — todos los avisos de Microsoft Azure, sin filtrar por cliente.</div>
     ${comFilters(list.length)}
     <div class="tblwrap">
       <table class="comtbl">
@@ -785,8 +780,11 @@ function comRow(c){
 }
 
 // ---------- PÁGINA RECURSOS ----------
-let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set()};
-function openRecursos(cid){navigate('/comunicados/'+cid+'/recursos');}  // navega al endpoint
+let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set(),backPath:'/comunicados',backLabel:'Comunicados'};
+function openRecursos(cid,backPath,backLabel){
+  RES.backPath=backPath||'/comunicados';RES.backLabel=backLabel||'Comunicados';
+  navigate('/comunicados/'+cid+'/recursos');  // navega al endpoint
+}
 async function loadRecursos(cid){
   RES.cid=cid;RES.com=STATE.comunicados.find(c=>c.id===cid);
   if(!RES.com){RES.rows=[];RES.invs=[];return;}
@@ -797,7 +795,7 @@ async function loadRecursos(cid){
   STATE.recMode='cliente';
   STATE.recQ='';STATE.recCli='';STATE.recSub='';STATE.recRG='';STATE.recRev='';STATE.recInv='';
 }
-function backToComunicados(){navigate('/comunicados');}
+function backToComunicados(){navigate(RES.backPath);}
 function setRecMode(m){STATE.recMode=m;render();}
 function clearRecFilters(){STATE.recQ='';STATE.recCli='';STATE.recSub='';STATE.recRG='';STATE.recRev='';render();}
 function setLocal(r,val){r.revisado=val?1:0;r.revisado_por=val?'usuario':null;r.revisado_at=val?new Date().toISOString():null;}
@@ -848,7 +846,7 @@ function renderRecursos(){
   const pc=pctTot>=90?'ok':pctTot>=50?'warn':'danger';
   const gBtn=(m,ic,label)=>`<button class="seg ${STATE.recMode===m?'active':''}" aria-pressed="${STATE.recMode===m}" aria-label="Agrupar por ${label}" onclick="setRecMode('${m}')">${svg(ic)}</button>`;
   $('#content').innerHTML=`
-    <button class="back-link" onclick="backToComunicados()"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Comunicados</button>
+    <button class="back-link" onclick="backToComunicados()"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>${esc(RES.backLabel)}</button>
     <div class="rechead">
       <h1 class="page" style="margin:0">${esc(c.titulo)}</h1>
       <div class="statstrip"><b>${clientesAll.length}</b> clientes · <b>${subsAll.length}</b> suscripciones · <b>${rgsAll.length}</b> RG · <b>${RES.rows.length}</b> recursos · <span class="status status--${pc}">${pctTot}% revisado</span></div>
@@ -1267,20 +1265,25 @@ function renderCliList(){
   const el=$('#cliList');if(!el)return;
   el.innerHTML=list.map(c=>cliRow(c,q)).join('')||'<tr><td colspan="4"><div class="empty-state">Sin clientes que coincidan.</div></td></tr>';
 }
-let CLIDET={id:null,cliente:null,comunicados:[],ok:false};
+let CLIDET={id:null,cliente:null,comunicados:[],resumen:null,ok:false};
 async function loadCliComs(id){
   try{const d=await api(`/api/clientes/${id}/comunicados`);
-    CLIDET={id,cliente:d.cliente,comunicados:d.comunicados||[],ok:d.cliente!=null};
-  }catch(e){CLIDET={id,cliente:null,comunicados:[],ok:false};toast('Error: '+e.message);}
+    CLIDET={id,cliente:d.cliente,comunicados:d.comunicados||[],resumen:d.resumen,ok:d.cliente!=null};
+  }catch(e){CLIDET={id,cliente:null,comunicados:[],resumen:null,ok:false};toast('Error: '+e.message);}
 }
 function openCliComs(id){navigate('/clientes/'+id+'/comunicados');}   // vista aparte al hacer clic en el nombre
+function openRecFromCli(id){openRecursos(id,'/clientes/'+CLIDET.id+'/comunicados',CLIDET.cliente);}
+function comResCell(m){
+  return `<td class="cc-res caption mono">${m.n_recursos?esc(String(m.n_revisados||0))+'/'+esc(String(m.n_recursos)):'—'}</td>`;
+}
 function renderCliComs(){
   const d=CLIDET,coms=d.comunicados||[];
-  const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecursos(${m.id})" title="Ver detalle del comunicado">
+  const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecFromCli(${m.id})" title="Ver detalle del comunicado">
      <td class="cc-title"><b>${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
      <td>${m.categoria?catBadge(m.categoria):''}</td>
      <td>${m.estado?esc(m.estado):'<span class="caption">—</span>'}</td>
      <td class="cc-due ${m.fecha_limite?'':'empty'}">${m.fecha_limite?fmtFechaLarga(m.fecha_limite):'—'}</td>
+     ${comResCell(m)}
    </tr>`).join('');
   $('#content').innerHTML=`
     <button class="back-link" onclick="navigate('/clientes')"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Clientes</button>
@@ -1288,14 +1291,42 @@ function renderCliComs(){
       <div class="statstrip"><b>${coms.length}</b> comunicado(s) que le afectan</div></div>
     <div class="page-sub">Comunicados con recursos en sus suscripciones, más los marcados “Afecta a todo Azure”.</div>
     ${coms.length?`<div class="tblwrap" style="max-height:none"><table class="clitbl cli-coms-tbl">
-      <thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:150px">Estado</th><th style="width:200px">Fecha límite</th></tr></thead>
+      <thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:150px">Estado</th><th style="width:200px">Fecha límite</th><th style="width:90px" title="Recursos revisados / total">Recursos</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+     :'<div class="empty-state">Ningún comunicado le afecta todavía.</div>'}`;
+}
+let SUBDET={id:null,suscripcion:null,cliente:null,cliente_id:null,comunicados:[],resumen:null,ok:false};
+async function loadSubComs(id){
+  try{const d=await api(`/api/suscripciones/${id}/comunicados`);
+    SUBDET={id,suscripcion:d.suscripcion,cliente:d.cliente,cliente_id:d.cliente_id,
+      comunicados:d.comunicados||[],resumen:d.resumen,ok:d.suscripcion!=null};
+  }catch(e){SUBDET={id,suscripcion:null,cliente:null,cliente_id:null,comunicados:[],resumen:null,ok:false};toast('Error: '+e.message);}
+}
+function openSubComs(id){navigate('/suscripciones/'+id+'/comunicados');}
+function openRecFromSub(id){openRecursos(id,'/suscripciones/'+SUBDET.id+'/comunicados',SUBDET.suscripcion);}
+function renderSubComs(){
+  const d=SUBDET,coms=d.comunicados||[];
+  const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecFromSub(${m.id})" title="Ver detalle del comunicado">
+     <td class="cc-title"><b>${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
+     <td>${m.categoria?catBadge(m.categoria):''}</td>
+     <td>${m.estado?esc(m.estado):'<span class="caption">—</span>'}</td>
+     <td class="cc-due ${m.fecha_limite?'':'empty'}">${m.fecha_limite?fmtFechaLarga(m.fecha_limite):'—'}</td>
+     ${comResCell(m)}
+   </tr>`).join('');
+  $('#content').innerHTML=`
+    <button class="back-link" onclick="navigate('/clientes/'+${d.cliente_id}+'/comunicados')"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>${esc(d.cliente||'Cliente')}</button>
+    <div class="rechead"><h1 class="page" style="margin:0">${esc(d.suscripcion||'Suscripción')}</h1>
+      <div class="statstrip"><b>${coms.length}</b> comunicado(s) que le afectan</div></div>
+    <div class="page-sub">Cliente: ${esc(d.cliente||'—')} · comunicados con recursos en esta suscripción, más los marcados “Afecta a todo Azure”.</div>
+    ${coms.length?`<div class="tblwrap" style="max-height:none"><table class="clitbl cli-coms-tbl">
+      <thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:150px">Estado</th><th style="width:200px">Fecha límite</th><th style="width:90px" title="Recursos revisados / total">Recursos</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`
      :'<div class="empty-state">Ningún comunicado le afecta todavía.</div>'}`;
 }
 function cliRow(c,q){
   const open=q?true:CLI.expanded.has(c.id);   // al buscar, se expande para ver coincidencias
   const subRows=c.suscripciones.map(s=>`<tr>
-      <td class="s-name">${svg('subscription','icon')}<span>${esc(s.nombre||'(sin nombre)')}</span></td>
+      <td class="s-name">${svg('subscription','icon')}<b class="cli-namelink" title="Ver comunicados que le afectan" onclick="event.stopPropagation();openSubComs(${s.id})">${esc(s.nombre||'(sin nombre)')}</b></td>
       <td class="mono ${s.sub_id?'':'empty'}">${s.sub_id?esc(s.sub_id):'sin id'}</td>
       <td><div class="acts">
         <button class="btn-icon-ghost" title="Editar suscripción" onclick="openSubForm(${s.id})">${svg('edit')}</button>

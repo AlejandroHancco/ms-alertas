@@ -193,6 +193,54 @@ def list_clientes():
     con.close()
     return cls
 
+def _match_conds(cli_nombre, nombres, ids):
+    """Condiciones que matchean recursos.cliente/suscripcion/suscripcion_id contra un cliente
+    completo (cli_nombre + todas sus suscripciones) o una suscripcion puntual (cli_nombre=None,
+    nombres/ids de esa sola suscripcion). Devuelve (where_sql, params); where_sql puede ser ''."""
+    conds, params = [], []
+    if cli_nombre:
+        conds.append("r.cliente = ?"); params.append(cli_nombre)
+    if nombres:
+        conds.append("r.suscripcion IN (%s)" % ",".join("?" for _ in nombres)); params += nombres
+    if ids:
+        conds.append("r.suscripcion_id IN (%s)" % ",".join("?" for _ in ids)); params += ids
+    return " OR ".join(conds), params
+
+def _resumen_comunicados(con, todos, global_ids, direct_ids):
+    """A partir de un conjunto de ids de comunicados, arma la lista enriquecida (n_recursos,
+    n_revisados, es_global, directo por comunicado) y un resumen agregado (vencidos, proximos,
+    recursos pendientes) usado tanto por cliente como por suscripcion."""
+    if not todos:
+        return [], {"n_comunicados": 0, "n_vencidos": 0, "n_proximos": 0,
+                     "n_recursos": 0, "n_revisados": 0, "n_pendientes": 0, "pct_revisado": 0}
+    ph = ",".join("?" for _ in todos)
+    rows = con.execute(
+        f"""SELECT c.*,
+              (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=c.id) AS n_recursos,
+              (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=c.id AND r.revisado=1) AS n_revisados
+            FROM comunicados c WHERE id IN ({ph})
+            ORDER BY COALESCE(NULLIF(fecha_limite,''),'9999-99-99'), LOWER(titulo)""",
+        list(todos)).fetchall()
+    hoy = TODAY()
+    en30 = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    out = []; n_vencidos = n_proximos = tot_rec = tot_rev = 0
+    for r in rows:
+        d = dict(r)
+        d["es_global"] = 1 if d["id"] in global_ids else 0
+        d["directo"]   = 1 if d["id"] in direct_ids else 0
+        fl = d.get("fecha_limite")
+        if fl and fl < hoy: n_vencidos += 1
+        elif fl and fl <= en30: n_proximos += 1
+        tot_rec += d["n_recursos"] or 0
+        tot_rev += d["n_revisados"] or 0
+        out.append(d)
+    resumen = {
+        "n_comunicados": len(out), "n_vencidos": n_vencidos, "n_proximos": n_proximos,
+        "n_recursos": tot_rec, "n_revisados": tot_rev, "n_pendientes": tot_rec - tot_rev,
+        "pct_revisado": round(tot_rev * 100 / tot_rec, 1) if tot_rec else 0,
+    }
+    return out, resumen
+
 def comunicados_de_cliente(cid):
     """Comunicados que afectan a un cliente: los que tienen recursos en alguna de sus
     suscripciones, MÁS todos los marcados 'afecta a todas las suscripciones' (todo Azure).
@@ -200,42 +248,60 @@ def comunicados_de_cliente(cid):
     con = db()
     cli = con.execute("SELECT nombre FROM clientes WHERE id=?", (cid,)).fetchone()
     if not cli:
-        con.close(); return {"cliente": None, "comunicados": []}
+        con.close(); return {"cliente": None, "comunicados": [], "resumen": None}
     cli_nombre = cli["nombre"]
     subs = con.execute("SELECT nombre, sub_id FROM suscripciones WHERE cliente_id=?", (cid,)).fetchall()
     nombres = [s["nombre"] for s in subs if (s["nombre"] or "").strip()]
     ids     = [s["sub_id"] for s in subs if (s["sub_id"] or "").strip()]
 
-    # condiciones de coincidencia directa (por nombre de cliente, suscripción o id)
-    conds, params = ["r.cliente = ?"], [cli_nombre]
-    if nombres:
-        conds.append("r.suscripcion IN (%s)" % ",".join("?" for _ in nombres)); params += nombres
-    if ids:
-        conds.append("r.suscripcion_id IN (%s)" % ",".join("?" for _ in ids)); params += ids
-    where_rec = " OR ".join(conds)
-
+    where_rec, params = _match_conds(cli_nombre, nombres, ids)
     direct_ids = {r[0] for r in con.execute(
         f"SELECT DISTINCT comunicado_id FROM recursos r WHERE {where_rec}", params).fetchall()}
     global_ids = {r[0] for r in con.execute(
         "SELECT id FROM comunicados WHERE afecta_todas=1").fetchall()}
 
-    todos = direct_ids | global_ids
-    if not todos:
-        con.close(); return {"cliente": cli_nombre, "comunicados": []}
+    comunicados, resumen = _resumen_comunicados(con, direct_ids | global_ids, global_ids, direct_ids)
+    con.close()
+    return {"cliente": cli_nombre, "comunicados": comunicados, "resumen": resumen}
 
-    ph = ",".join("?" for _ in todos)
-    rows = con.execute(
-        f"""SELECT * FROM comunicados WHERE id IN ({ph})
-            ORDER BY COALESCE(NULLIF(fecha_limite,''),'9999-99-99'), LOWER(titulo)""",
-        list(todos)).fetchall()
+def comunicados_de_suscripcion(sid):
+    """Comunicados que afectan a UNA suscripcion puntual: match directo por su propio nombre/id
+    (no por las demas suscripciones del cliente), MAS los marcados 'afecta a todas' (todo Azure)."""
+    con = db()
+    row = con.execute("""
+        SELECT s.nombre, s.sub_id, s.cliente_id, c.nombre AS cliente
+        FROM suscripciones s JOIN clientes c ON s.cliente_id = c.id
+        WHERE s.id = ?""", (sid,)).fetchone()
+    if not row:
+        con.close(); return {"suscripcion": None, "comunicados": [], "resumen": None}
+    nombres = [row["nombre"]] if (row["nombre"] or "").strip() else []
+    ids     = [row["sub_id"]] if (row["sub_id"] or "").strip() else []
+
+    where_rec, params = _match_conds(None, nombres, ids)
+    direct_ids = ({r[0] for r in con.execute(
+        f"SELECT DISTINCT comunicado_id FROM recursos r WHERE {where_rec}", params).fetchall()}
+        if where_rec else set())
+    global_ids = {r[0] for r in con.execute(
+        "SELECT id FROM comunicados WHERE afecta_todas=1").fetchall()}
+
+    comunicados, resumen = _resumen_comunicados(con, direct_ids | global_ids, global_ids, direct_ids)
+    con.close()
+    return {"suscripcion": row["nombre"], "suscripcion_id": row["sub_id"],
+            "cliente": row["cliente"], "cliente_id": row["cliente_id"],
+            "comunicados": comunicados, "resumen": resumen}
+
+def stats_clientes():
+    """Resumen por cliente (vencidos/proximos/recursos pendientes) para el Dashboard,
+    ordenado por urgencia directa -- sin ningun score ponderado."""
+    con = db()
+    cls = con.execute("SELECT id,nombre FROM clientes ORDER BY LOWER(nombre)").fetchall()
     con.close()
     out = []
-    for r in rows:
-        d = dict(r)
-        d["es_global"] = 1 if d["id"] in global_ids else 0
-        d["directo"]   = 1 if d["id"] in direct_ids else 0
-        out.append(d)
-    return {"cliente": cli_nombre, "comunicados": out}
+    for cl in cls:
+        d = comunicados_de_cliente(cl["id"])
+        out.append({"id": cl["id"], "nombre": cl["nombre"], **d["resumen"]})
+    out.sort(key=lambda x: (-x["n_vencidos"], -x["n_proximos"]))
+    return out
 
 def suscripciones_sin_cliente():
     """Suscripciones presentes en recursos que no están mapeadas a ningún cliente."""
@@ -569,9 +635,12 @@ class H(BaseHTTPRequestHandler):
         try:
             with LOCK:
                 if p == "/api/stats": return self._send(200, stats())
+                if p == "/api/stats/clientes": return self._send(200, stats_clientes())
                 if p == "/api/clientes": return self._send(200, list_clientes())
                 m = re.match(r"/api/clientes/(\d+)/comunicados$", p)
                 if m: return self._send(200, comunicados_de_cliente(int(m.group(1))))
+                m = re.match(r"/api/suscripciones/(\d+)/comunicados$", p)
+                if m: return self._send(200, comunicados_de_suscripcion(int(m.group(1))))
                 if p == "/api/miembros": return self._send(200, list_miembros())
                 if p == "/api/suscripciones-sin-cliente": return self._send(200, suscripciones_sin_cliente())
                 if p == "/api/comunicados": return self._send(200, list_comunicados())
