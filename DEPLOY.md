@@ -1,3 +1,30 @@
+# Local con Docker
+
+Para levantar la base de datos (PostgreSQL) y la app (backend + frontend) en tu
+máquina, con Docker Desktop instalado:
+
+```bash
+docker compose up --build
+```
+
+Esto levanta:
+
+- `db`: PostgreSQL 16 en el puerto `5432`, con los datos persistidos en el
+  volumen `db_data` (sobreviven a `docker compose down`; usa `down -v` para
+  borrarlos).
+- `app`: la plataforma en `http://localhost:8765`. Al arrancar crea el esquema
+  automáticamente (`ensure_schema()`), así que la primera vez la base estará
+  vacía — usa el botón **Importar** de la propia plataforma o adapta
+  `migrate_to_pg.py`/`import_excel.py` para cargar datos.
+
+Para detener: `Ctrl+C` y luego `docker compose down` (agrega `-v` si además
+quieres borrar los datos de PostgreSQL).
+
+Las credenciales están fijas en `docker-compose.yml` (`upgrade_ms`/`upgrade_ms`)
+solo para uso local; no se usan en producción (ver Azure más abajo).
+
+---
+
 # Despliegue a Azure (App Service + PostgreSQL)
 
 La plataforma ahora usa **Azure Database for PostgreSQL** en lugar de SQLite y se
