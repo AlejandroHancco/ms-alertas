@@ -15,3 +15,13 @@ venv/
 
 # Excel de origen (datos de clientes: NO subir al repo)
 *.xlsx
+
+# Volcados de base de datos (NO subir)
+*.dump
+
+# Backups y herramientas locales
+*.bak
+.claude/
+.agents/
+.impeccable/
+skills-lock.json

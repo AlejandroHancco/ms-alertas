@@ -59,8 +59,24 @@ def list_comunicados():
         (SELECT COUNT(*) FROM inventarios i WHERE i.comunicado_id=c.id) AS n_inventarios
       FROM comunicados c ORDER BY (c.fecha_limite IS NULL), c.fecha_limite, c.id
     """).fetchall()
+    # Clientes y suscripciones afectadas por cada comunicado (para los filtros de la lista).
+    afect = {}
+    for r in con.execute("""
+        SELECT comunicado_id,
+          ARRAY_AGG(DISTINCT cliente)     FILTER (WHERE COALESCE(cliente,'')<>'')     AS clientes,
+          ARRAY_AGG(DISTINCT suscripcion) FILTER (WHERE COALESCE(suscripcion,'')<>'') AS suscripciones
+        FROM recursos GROUP BY comunicado_id
+    """).fetchall():
+        afect[r["comunicado_id"]] = (list(r["clientes"] or []), list(r["suscripciones"] or []))
     con.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        cl, su = afect.get(d["id"], ([], []))
+        d["clientes"] = cl
+        d["suscripciones"] = su
+        out.append(d)
+    return out
 
 def list_inventarios(cid):
     con = db()
@@ -135,6 +151,39 @@ def stats():
         (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
       FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ?
       ORDER BY fecha_limite LIMIT 10""", (hoy,)).fetchall()]
+    # --- Clientes: recursos afectados y avance de revisión por cliente ---
+    cli_rows = [dict(r) for r in c.execute("""
+      SELECT cliente,
+             COUNT(*) AS recursos,
+             COALESCE(SUM(revisado),0) AS revisados
+      FROM recursos WHERE COALESCE(cliente,'')<>''
+      GROUP BY cliente ORDER BY recursos DESC""").fetchall()]
+    clientes_afectados = len(cli_rows)
+    # clientes tocados por comunicados vencidos (para marcar riesgo alto)
+    venc_cli = {r[0] for r in c.execute("""
+      SELECT DISTINCT cliente FROM recursos
+      WHERE COALESCE(cliente,'')<>'' AND comunicado_id IN
+        (SELECT id FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ?)
+      """, (hoy,)).fetchall()}
+    for r in cli_rows:
+        r["pendientes"] = r["recursos"] - r["revisados"]
+        r["vencido"] = 1 if r["cliente"] in venc_cli else 0
+    clientes_top = cli_rows[:10]
+    clientes_riesgo = sorted((r for r in cli_rows if r["pendientes"] > 0),
+                             key=lambda r: (r["vencido"], r["pendientes"]), reverse=True)[:8]
+
+    # --- Comunicados por estado (derivado del avance de revisión) ---
+    com_estado = {"sin_recursos": 0, "sin_revisar": 0, "en_progreso": 0, "completado": 0}
+    for r in c.execute("""
+      SELECT COUNT(r.id) AS n_rec, COALESCE(SUM(r.revisado),0) AS n_rev
+      FROM comunicados co LEFT JOIN recursos r ON r.comunicado_id=co.id
+      GROUP BY co.id""").fetchall():
+        nr, nv = r["n_rec"], r["n_rev"]
+        if nr == 0:        com_estado["sin_recursos"] += 1
+        elif nv >= nr:     com_estado["completado"]   += 1
+        elif nv == 0:      com_estado["sin_revisar"]  += 1
+        else:              com_estado["en_progreso"]  += 1
+
     con.close()
     return {
         "totales": {"comunicados": tot_com, "recursos": tot_rec, "revisados": rev,
@@ -143,6 +192,8 @@ def stats():
                     "vencidos": vencidos},
         "por_categoria": por_cat, "por_suscripcion": por_sub,
         "proximos": prox, "vencidos_list": vencidos_list, "hoy": hoy,
+        "clientes_top": clientes_top, "clientes_afectados": clientes_afectados,
+        "clientes_riesgo": clientes_riesgo, "com_estado": com_estado,
     }
 
 # ------------------------- mutaciones -------------------------
@@ -186,11 +237,17 @@ def delete_comunicado(cid):
 def list_clientes():
     con = db()
     cls = [dict(r) for r in con.execute("SELECT * FROM clientes ORDER BY LOWER(nombre)").fetchall()]
-    for c in cls:
-        c["suscripciones"] = [dict(r) for r in con.execute(
-            "SELECT id,nombre,sub_id FROM suscripciones WHERE cliente_id=? ORDER BY nombre", (c["id"],)).fetchall()]
-        c["n_recursos"] = con.execute("SELECT COUNT(*) FROM recursos WHERE cliente=?", (c["nombre"],)).fetchone()[0]
+    # Evita el N+1 (2 queries por cliente): trae todo en 2 queries agregadas.
+    subs_by_cli = {}
+    for r in con.execute("SELECT id,nombre,sub_id,cliente_id FROM suscripciones ORDER BY nombre"):
+        subs_by_cli.setdefault(r["cliente_id"], []).append(
+            {"id": r["id"], "nombre": r["nombre"], "sub_id": r["sub_id"]})
+    counts = {r["cliente"]: r["n"] for r in con.execute(
+        "SELECT cliente, COUNT(*) AS n FROM recursos GROUP BY cliente")}
     con.close()
+    for c in cls:
+        c["suscripciones"] = subs_by_cli.get(c["id"], [])
+        c["n_recursos"] = counts.get(c["nombre"], 0)
     return cls
 
 def comunicados_de_cliente(cid):
@@ -311,6 +368,114 @@ def update_miembro(mid, data):
 def delete_miembro(mid):
     con = db(); con.execute("DELETE FROM miembros WHERE id=?", (mid,)); con.commit(); con.close()
     return {"ok": True}
+
+# ---- sesiones / login (cada miembro ve SUS comunicados como 'responsable') ----
+SESSIONS = {}   # sid -> {id, correo, nombre, apellido}
+
+def login(data):
+    correo = (data.get("correo") or "").strip().lower()
+    pwd = data.get("password") or ""
+    con = db()
+    row = con.execute("SELECT id,correo,nombre,apellido,pwd FROM miembros WHERE correo=?",
+                      (correo,)).fetchone()
+    con.close()
+    if not row or not verify_pwd(pwd, row["pwd"]):
+        raise ValueError("Correo o contraseña incorrectos")
+    sid = secrets.token_urlsafe(24)
+    m = {"id": row["id"], "correo": row["correo"],
+         "nombre": row["nombre"], "apellido": row["apellido"]}
+    SESSIONS[sid] = m
+    return sid, m
+
+def member_from_sid(sid):
+    return SESSIONS.get(sid) if sid else None
+
+def update_mi_perfil(mid, data):
+    """Cada miembro edita su propio nombre/apellido (no el de otros)."""
+    nombre = (data.get("nombre") or "").strip()
+    apellido = (data.get("apellido") or "").strip()
+    con = db()
+    con.execute("UPDATE miembros SET nombre=?, apellido=? WHERE id=?", (nombre, apellido, mid))
+    con.commit(); con.close()
+    return {"nombre": nombre, "apellido": apellido}
+
+def change_password(mid, data):
+    """Cambia la contraseña del propio miembro; exige la contraseña actual correcta."""
+    actual = data.get("actual") or ""
+    nueva = data.get("nueva") or ""
+    if len(nueva) < 4:
+        raise ValueError("La nueva contraseña debe tener al menos 4 caracteres")
+    con = db()
+    row = con.execute("SELECT pwd FROM miembros WHERE id=?", (mid,)).fetchone()
+    if not row:
+        con.close(); raise ValueError("miembro no existe")
+    if not verify_pwd(actual, row["pwd"]):
+        con.close(); raise ValueError("La contraseña actual es incorrecta")
+    con.execute("UPDATE miembros SET pwd=? WHERE id=?", (hash_pwd(nueva), mid))
+    con.commit(); con.close()
+    return {"ok": True}
+
+def mi_stats(responsable):
+    """Dashboard personal: solo los comunicados donde el miembro es 'responsable'."""
+    con = db(); c = con.cursor(); hoy = TODAY()
+    com_ids = [r[0] for r in c.execute(
+        "SELECT id FROM comunicados WHERE responsable=?", (responsable,)).fetchall()]
+    tot_com = len(com_ids)
+    empty = {"responsable": responsable, "hoy": hoy,
+             "totales": {"comunicados": 0, "recursos": 0, "revisados": 0,
+                         "pendientes": 0, "pct_revisado": 0, "vencidos": 0},
+             "por_categoria": [], "proximos": [], "vencidos_list": [],
+             "com_estado": {"sin_recursos": 0, "sin_revisar": 0, "en_progreso": 0, "completado": 0},
+             "clientes_top": [], "clientes_afectados": 0}
+    if not com_ids:
+        con.close(); return empty
+    ph = ",".join("?" for _ in com_ids)
+    tot_rec = c.execute(f"SELECT COUNT(*) FROM recursos WHERE comunicado_id IN ({ph})", com_ids).fetchone()[0]
+    rev = c.execute(f"SELECT COUNT(*) FROM recursos WHERE revisado=1 AND comunicado_id IN ({ph})", com_ids).fetchone()[0]
+    vencidos = c.execute(
+        f"SELECT COUNT(*) FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ? AND id IN ({ph})",
+        [hoy]+com_ids).fetchone()[0]
+    por_cat = [dict(r) for r in c.execute(f"""
+      SELECT COALESCE(NULLIF(co.categoria,''),'Sin categoría') AS categoria,
+             COUNT(DISTINCT co.id) AS comunicados,
+             COUNT(r.id) AS recursos, COALESCE(SUM(r.revisado),0) AS revisados
+      FROM comunicados co LEFT JOIN recursos r ON r.comunicado_id=co.id
+      WHERE co.id IN ({ph}) GROUP BY 1 ORDER BY recursos DESC""", com_ids).fetchall()]
+    prox = [dict(r) for r in c.execute(f"""
+      SELECT id,n,titulo,categoria,fecha_limite,
+        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
+        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
+      FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite >= ? AND id IN ({ph})
+      ORDER BY fecha_limite LIMIT 8""", [hoy]+com_ids).fetchall()]
+    vencidos_list = [dict(r) for r in c.execute(f"""
+      SELECT id,n,titulo,categoria,fecha_limite,
+        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
+        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
+      FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ? AND id IN ({ph})
+      ORDER BY fecha_limite LIMIT 10""", [hoy]+com_ids).fetchall()]
+    com_estado = {"sin_recursos": 0, "sin_revisar": 0, "en_progreso": 0, "completado": 0}
+    for r in c.execute(f"""
+      SELECT COUNT(r.id) AS n_rec, COALESCE(SUM(r.revisado),0) AS n_rev
+      FROM comunicados co LEFT JOIN recursos r ON r.comunicado_id=co.id
+      WHERE co.id IN ({ph}) GROUP BY co.id""", com_ids).fetchall():
+        nr, nv = r["n_rec"], r["n_rev"]
+        if nr == 0:    com_estado["sin_recursos"] += 1
+        elif nv >= nr: com_estado["completado"]   += 1
+        elif nv == 0:  com_estado["sin_revisar"]  += 1
+        else:          com_estado["en_progreso"]  += 1
+    cli_rows = [dict(r) for r in c.execute(f"""
+      SELECT cliente, COUNT(*) AS recursos, COALESCE(SUM(revisado),0) AS revisados
+      FROM recursos WHERE COALESCE(cliente,'')<>'' AND comunicado_id IN ({ph})
+      GROUP BY cliente ORDER BY recursos DESC""", com_ids).fetchall()]
+    con.close()
+    return {"responsable": responsable, "hoy": hoy,
+            "totales": {"comunicados": tot_com, "recursos": tot_rec, "revisados": rev,
+                        "pendientes": tot_rec-rev,
+                        "pct_revisado": round(rev*100/tot_rec, 1) if tot_rec else 0,
+                        "vencidos": vencidos},
+            "por_categoria": por_cat, "proximos": prox, "vencidos_list": vencidos_list,
+            "com_estado": com_estado, "clientes_top": cli_rows[:10],
+            "clientes_afectados": len(cli_rows)}
 
 def rename_suscripcion_sin_cliente(data):
     """Edita el nombre/id de una suscripción huérfana (sin cliente) en los recursos.
@@ -535,13 +700,22 @@ def bulk_review(data):
 # ------------------------- HTTP -------------------------
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", extra_headers=None):
         if ctype == "application/json": body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         elif isinstance(body, str): body = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype+"; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for k, v in (extra_headers or []):
+            self.send_header(k, v)
         self.end_headers(); self.wfile.write(body)
+    def _sid(self):
+        for part in (self.headers.get("Cookie", "") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "sid": return v
+        return None
+    def _me(self):
+        return member_from_sid(self._sid())
     def _json_body(self):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or "{}") if n else {}
@@ -568,6 +742,15 @@ class H(BaseHTTPRequestHandler):
         p = urlparse(self.path).path
         try:
             with LOCK:
+                if p == "/api/me": return self._send(200, {"miembro": self._me()})
+                # Login obligatorio: toda la API (salvo /api/me) exige sesión activa.
+                if p.startswith("/api/") and not self._me():
+                    return self._send(401, {"error": "no autenticado"})
+                if p == "/api/mi-stats":
+                    me = self._me()
+                    if not me: return self._send(401, {"error": "no autenticado"})
+                    resp = (f"{me['nombre'] or ''} {me['apellido'] or ''}").strip()
+                    return self._send(200, mi_stats(resp))
                 if p == "/api/stats": return self._send(200, stats())
                 if p == "/api/clientes": return self._send(200, list_clientes())
                 m = re.match(r"/api/clientes/(\d+)/comunicados$", p)
@@ -592,6 +775,9 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         p = parsed.path
+        # Login obligatorio: solo /api/login es público; el resto exige sesión.
+        if p.startswith("/api/") and p != "/api/login" and not self._me():
+            return self._send(401, {"error": "no autenticado"})
         m_imp = re.match(r"/api/comunicados/(\d+)/import$", p)
         if m_imp:
             try:
@@ -609,6 +795,21 @@ class H(BaseHTTPRequestHandler):
         try:
             data = self._json_body()
             with LOCK:
+                if p == "/api/login":
+                    sid, m = login(data)
+                    return self._send(200, {"miembro": m},
+                                      extra_headers=[("Set-Cookie", f"sid={sid}; Path=/; HttpOnly; SameSite=Lax")])
+                if p == "/api/logout":
+                    SESSIONS.pop(self._sid(), None)
+                    return self._send(200, {"ok": True},
+                                      extra_headers=[("Set-Cookie", "sid=; Path=/; Max-Age=0")])
+                if p == "/api/cambiar-password":
+                    return self._send(200, change_password(self._me()["id"], data))
+                if p == "/api/mi-perfil":
+                    me = self._me()
+                    r = update_mi_perfil(me["id"], data)
+                    me["nombre"] = r["nombre"]; me["apellido"] = r["apellido"]  # refresca la sesión
+                    return self._send(200, {"miembro": me})
                 if p == "/api/comunicados": return self._send(201, add_comunicado(data))
                 if p == "/api/clientes": return self._send(201, add_cliente(data))
                 if p == "/api/miembros": return self._send(201, add_miembro(data))
@@ -623,6 +824,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         p = urlparse(self.path).path
+        if not self._me(): return self._send(401, {"error": "no autenticado"})
         if p == "/api/suscripciones-sin-cliente":
             try:
                 with LOCK: return self._send(200, rename_suscripcion_sin_cliente(self._json_body()))
@@ -655,6 +857,7 @@ class H(BaseHTTPRequestHandler):
         return self._send(404, {"error":"ruta"})
 
     def do_PATCH(self):
+        if not self._me(): return self._send(401, {"error": "no autenticado"})
         m = re.match(r"/api/recursos/(\d+)$", urlparse(self.path).path)
         if not m: return self._send(404, {"error":"ruta"})
         try:
@@ -663,6 +866,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         p = urlparse(self.path).path
+        if not self._me(): return self._send(401, {"error": "no autenticado"})
         for rx, fn in ((r"/api/comunicados/(\d+)$", delete_comunicado),
                        (r"/api/clientes/(\d+)$", delete_cliente),
                        (r"/api/suscripciones/(\d+)$", delete_suscripcion),

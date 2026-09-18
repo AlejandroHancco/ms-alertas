@@ -1,0 +1,1433 @@
+// ---------- iconos SVG ----------
+const IC = {
+ dashboard:'<path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/>',
+ notice:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+ resource:'<path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="M3 13l9 5 9-5M3 16l9 5 9-5"/>',
+ folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
+ building:'<path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M14 21V9h4a2 2 0 0 1 2 2v10M3 21h18M7 7h2M7 11h2M7 15h2"/>',
+ subscription:'<circle cx="7.5" cy="15.5" r="3.5"/><path d="m10 13 7-7M14 5l3 3 3-3-2-2M15 9l2 2"/>',
+ check:'<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+ add:'<path d="M12 5v14M5 12h14"/>',
+ search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+ filter:'<path d="M3 5h18l-7 8v6l-4-2v-4L3 5Z"/>',
+ export:'<path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+ warning:'<path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v5M12 18h.01"/>',
+ close:'<path d="M6 6l12 12M18 6 6 18"/>',
+ eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+ eyeoff:'<path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.24 4.24M9.9 4.66A10.4 10.4 0 0 1 12 4.5c6.5 0 10 7 10 7a17.8 17.8 0 0 1-3.06 3.94M6.1 6.12A17.8 17.8 0 0 0 2 11.5s3.5 7 10 7a10.4 10.4 0 0 0 3.06-.44"/>',
+ chev:'<path d="m9 6 6 6-6 6"/>',
+ panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+ edit:'<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+ trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+ sat:'<path d="m6 10 4 4M9.5 6.5l8 8M4 12l-1.5 1.5a2.1 2.1 0 0 0 0 3l2 2a2.1 2.1 0 0 0 3 0L9 17M14 8l2-2M18 12a4 4 0 0 0-4-4M21 12a7 7 0 0 0-7-7"/>',
+ user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+ team:'<circle cx="9" cy="8" r="3.4"/><path d="M3 20a6 6 0 0 1 12 0M16 5a3 3 0 0 1 0 6M17.5 20a5.5 5.5 0 0 0-3-4.9"/>',
+ home:'<path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+ moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>',
+ logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+};
+function svg(name,cls='icon'){
+  return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[name]||''}</svg>`;
+}
+document.querySelectorAll('[data-ic]').forEach(e=>e.innerHTML=svg(e.dataset.ic));
+
+// Sidebar colapsable (solo iconos). Estado recordado en localStorage.
+(function initCollapse(){
+  const app=document.querySelector('.app'),KEY='sbCollapsed';
+  if(localStorage.getItem(KEY)==='1')app.classList.add('collapsed');
+  const btn=document.getElementById('btnCollapse');
+  if(btn)btn.addEventListener('click',()=>{
+    const c=app.classList.toggle('collapsed');
+    localStorage.setItem(KEY,c?'1':'0');
+    btn.setAttribute('title',c?'Expandir menú':'Contraer menú');
+  });
+})();
+
+// ---------- utilidades ----------
+const $=s=>document.querySelector(s);
+const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api=async(url,opt)=>{const r=await fetch(url,opt&&{headers:{'Content-Type':'application/json'},...opt});if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json();};
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
+function hl(s,q){s=esc(s);if(!q)return s;try{return s.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>');}catch(e){return s;}}
+const today=new Date().toISOString().slice(0,10);
+function fmtInv(ts){                       // "2026-09-03T10:31:00" -> "3 sep 2026"
+  if(!ts)return'';
+  const d=new Date(ts.replace(' ','T'));
+  if(isNaN(d))return esc(ts.slice(0,10));
+  return d.toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'});
+}
+const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','setiembre','octubre','noviembre','diciembre'];
+function fmtFechaLarga(s){                  // "2025-09-20" -> "20 de setiembre de 2025"
+  if(!s)return'';
+  const m=String(s).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m)return esc(String(s));
+  const y=+m[1],mo=+m[2],d=+m[3];
+  if(mo<1||mo>12)return esc(String(s));
+  return `${d} de ${MESES[mo-1]} de ${y}`;
+}
+function invAgo(ts){                        // texto relativo: "hoy", "hace 3 d"
+  if(!ts)return'';
+  const days=Math.floor((new Date(today)-new Date(ts.slice(0,10)))/864e5);
+  return days<=0?'hoy':days===1?'ayer':`hace ${days} d`;
+}
+function dueClass(d){if(!d)return'';return d<today?'--danger':(d<=new Date(Date.now()+30*864e5).toISOString().slice(0,10)?'--warn':'--ok');}
+function pctClass(p){return p>=90?'kpi--ok':p>=50?'kpi--warn':'kpi--danger';}
+const CAT_COLORS={"Compute":"#58a6ff","Almacenamiento":"#d29922","Redes":"#2dd4bf","Bases de datos":"#a78bfa","Datos y Analítica":"#f778ba","Contenedores":"#3fb950","Seguridad e Identidad":"#f85149","Gobernanza y Monitoreo":"#79c0ff","FinOps y Reservas":"#e3b341","Otros":"#8b98a9"};
+function catColor(c){return CAT_COLORS[c]||"#8b98a9";}
+function catBadge(c){return c?`<span class="cbadge" style="--c:${catColor(c)}">${esc(c)}</span>`:'<span class="caption">—</span>';}
+
+let STATE={view:'mipanel',stats:null,comunicados:[],q:'',cat:'',est:'faltan',verVenc:false,comCli:[],comSub:[],comView:'',comFiltersOpen:false,comFilterTab:'cliente',comFilterQ:'',recSort:{col:null,dir:1}};
+let COMGRP={keys:[]};                 // claves de los grupos visibles (índice → clave)
+const COM_COLLAPSED=new Set();        // grupos colapsados (por clave)
+
+async function loadAll(){
+  const [st,co,cl,mi,me]=await Promise.all([api('/api/stats'),api('/api/comunicados'),
+    api('/api/clientes').catch(()=>[]),api('/api/miembros').catch(()=>[]),
+    api('/api/me').catch(()=>({miembro:null}))]);
+  STATE.stats=st;STATE.comunicados=co;CLI.list=cl;MIEM.list=mi;   // caché para el buscador global
+  STATE.me=(me&&me.miembro)||null;                               // miembro logueado (o null)
+}
+
+// ---------- enrutado (URLs reales / History API) ----------
+function navigate(path){
+  if(location.pathname!==path)history.pushState({},'',path);
+  route();
+}
+async function route(){
+  const p=location.pathname.replace(/\/+$/,'')||'/';
+  let m;
+  if(m=p.match(/^\/comunicados\/(\d+)\/recursos$/)){
+    setNav('comunicados');
+    await loadRecursos(+m[1]);           // carga recursos del comunicado
+    if(!RES.com){navigate('/comunicados');return;}
+    STATE.view='recursos';render();
+  }else if(p==='/comunicados'){
+    STATE.view='comunicados';setNav('comunicados');render();
+  }else if(m=p.match(/^\/clientes\/(\d+)\/comunicados$/)){
+    setNav('clientes');
+    await loadCliComs(+m[1]);             // carga comunicados que afectan al cliente
+    if(!CLIDET.ok){navigate('/clientes');return;}
+    STATE.view='clicom';render();
+  }else if(p==='/clientes'){
+    STATE.view='clientes';setNav('clientes');render();
+  }else if(p==='/miembros'){
+    STATE.view='miembros';setNav('miembros');render();
+  }else if(p==='/mipanel'){
+    STATE.view='mipanel';setNav('mipanel');render();
+  }else if(p==='/perfil'){
+    STATE.view='perfil';setNav('perfil');render();
+  }else{
+    STATE.view='mipanel';setNav('mipanel');render();   // '/' es Inicio
+  }
+}
+window.addEventListener('popstate',route);
+
+document.querySelectorAll('.nav-item[data-view]').forEach(b=>b.onclick=()=>{
+  navigate(b.dataset.view==='mipanel'?'/':'/'+b.dataset.view);   // Inicio vive en '/'
+});
+// ---------- buscador global estilo Azure (objetos: cliente, encargado, comunicado…) ----------
+const GS={items:[],active:-1,open:false};
+function gsSources(q){
+  const ql=q.toLowerCase(),out=[];
+  // Comunicados (por título, resumen o categoría)
+  STATE.comunicados.forEach(c=>{
+    if([c.titulo,c.resumen,c.categoria].filter(Boolean).join(' ').toLowerCase().includes(ql))
+      out.push({type:'Comunicado',icon:'notice',name:c.titulo||'(sin título)',
+        sub:[c.categoria,c.fecha_limite?'vence '+c.fecha_limite:''].filter(Boolean).join(' · '),
+        run:()=>openRecursos(c.id)});
+  });
+  // Clientes y sus suscripciones
+  (CLI.list||[]).forEach(c=>{
+    if((c.nombre||'').toLowerCase().includes(ql)||(c.ext_id||'').toLowerCase().includes(ql))
+      out.push({type:'Cliente',icon:'building',name:c.nombre,
+        sub:(c.suscripciones?.length||0)+' suscripción(es)'+(c.ext_id?' · '+c.ext_id:''),
+        run:()=>gotoCli(c.nombre)});
+    (c.suscripciones||[]).forEach(s=>{
+      if((s.nombre||'').toLowerCase().includes(ql)||(s.sub_id||'').toLowerCase().includes(ql))
+        out.push({type:'Suscripción',icon:'subscription',name:s.nombre||s.sub_id||'(sin nombre)',
+          sub:'Cliente: '+c.nombre,run:()=>gotoCli(s.nombre||s.sub_id||c.nombre)});
+    });
+  });
+  // Miembros de la plataforma
+  (MIEM.list||[]).forEach(m=>{
+    const full=[m.nombre,m.apellido].filter(Boolean).join(' ');
+    if([m.correo,m.nombre,m.apellido].filter(Boolean).join(' ').toLowerCase().includes(ql))
+      out.push({type:'Miembro',icon:'user',name:full||m.correo,
+        sub:full?m.correo:'',run:()=>gotoMiembros(m.correo)});
+  });
+  // Encargados (responsables distintos de los comunicados)
+  const enc={};
+  STATE.comunicados.forEach(c=>{const r=(c.responsable||'').trim();if(r)enc[r]=(enc[r]||0)+1;});
+  Object.keys(enc).filter(r=>r.toLowerCase().includes(ql)).forEach(r=>{
+    out.push({type:'Encargado',icon:'building',name:r,sub:enc[r]+' comunicado(s)',
+      run:()=>gotoComQ(r)});
+  });
+  // Categorías
+  [...new Set(STATE.comunicados.map(c=>c.categoria).filter(Boolean))]
+    .filter(cat=>cat.toLowerCase().includes(ql))
+    .forEach(cat=>out.push({type:'Categoría',icon:'filter',name:cat,sub:'Filtrar comunicados',
+      run:()=>{STATE.cat=cat;STATE.q='';STATE.est='';STATE.verVenc=true;navigate('/comunicados');}}));
+  return out;
+}
+function gotoCli(term){CLI.pendingQ=term||'';navigate('/clientes');}
+function gotoComQ(term){STATE.q=term||'';STATE.cat='';STATE.est='';STATE.verVenc=true;navigate('/comunicados');}
+function gsRender(raw){
+  const box=$('#gsResults'),q=(raw||'').trim();
+  if(!box)return;
+  if(!q){gsClose();return;}
+  const order=['Comunicado','Cliente','Suscripción','Miembro','Encargado','Categoría'],perType=6;
+  const grouped={};gsSources(q).forEach(it=>(grouped[it.type]=grouped[it.type]||[]).push(it));
+  GS.items=[];let html='';
+  order.forEach(t=>{
+    const arr=(grouped[t]||[]).slice(0,perType);if(!arr.length)return;
+    const extra=grouped[t].length>perType?` · ${perType} de ${grouped[t].length}`:'';
+    html+=`<div class="gs-group">${t}${extra}</div>`;
+    arr.forEach(it=>{
+      const idx=GS.items.length;GS.items.push(it);
+      html+=`<div class="gs-item" data-i="${idx}" onclick="gsPick(${idx})" onmousemove="gsHover(${idx})">
+        ${svg(it.icon,'icon')}
+        <div class="gs-main"><div class="gs-name">${hl(it.name,q)}</div>${it.sub?`<div class="gs-sub">${esc(it.sub)}</div>`:''}</div>
+        <span class="gs-badge">${t}</span></div>`;
+    });
+  });
+  box.innerHTML=html||`<div class="gs-empty">Sin coincidencias para “${esc(q)}”.</div>`;
+  box.hidden=false;GS.open=true;GS.active=-1;
+  $('#globalSearch').setAttribute('aria-expanded','true');
+}
+function gsHover(i){GS.active=i;gsSyncActive();}
+function gsSyncActive(){document.querySelectorAll('#gsResults .gs-item').forEach(el=>el.classList.toggle('active',+el.dataset.i===GS.active));}
+function gsScroll(){const el=document.querySelector(`#gsResults .gs-item[data-i="${GS.active}"]`);if(el)el.scrollIntoView({block:'nearest'});}
+function gsPick(i){const it=GS.items[i];if(!it)return;gsClose();$('#globalSearch').value='';it.run();}
+function gsClose(){const box=$('#gsResults');if(box){box.hidden=true;box.innerHTML='';}GS.open=false;GS.active=-1;const g=$('#globalSearch');if(g)g.setAttribute('aria-expanded','false');}
+$('#globalSearch').addEventListener('input',e=>gsRender(e.target.value));
+$('#globalSearch').addEventListener('focus',e=>{if(e.target.value.trim())gsRender(e.target.value);});
+$('#globalSearch').addEventListener('keydown',e=>{
+  if(!GS.open||!GS.items.length){if(e.key==='Escape')gsClose();return;}
+  if(e.key==='ArrowDown'){e.preventDefault();GS.active=Math.min(GS.active+1,GS.items.length-1);gsSyncActive();gsScroll();}
+  else if(e.key==='ArrowUp'){e.preventDefault();GS.active=Math.max(GS.active-1,0);gsSyncActive();gsScroll();}
+  else if(e.key==='Enter'){e.preventDefault();gsPick(GS.active>=0?GS.active:0);}
+  else if(e.key==='Escape'){gsClose();e.target.blur();}
+});
+document.addEventListener('click',e=>{if(!e.target.closest('#gsearch'))gsClose();});
+// cerrar el popover de filtro al hacer clic fuera (sin re-render completo)
+document.addEventListener('click',e=>{
+  if(!STATE.comFiltersOpen||e.target.closest('#comFilter'))return;
+  STATE.comFiltersOpen=false;
+  const p=$('#comFilterPop');if(p)p.hidden=true;
+  const b=$('#btnFiltrar');if(b){b.setAttribute('aria-expanded','false');b.classList.toggle('primary',!!(STATE.comCli.length+STATE.comSub.length));}
+});
+$('#btnNew').onclick=()=>openForm();
+
+function render(){
+  if(STATE.view==='recursos'&&RES.com)renderRecursos();
+  else if(STATE.view==='clientes')renderClientes();
+  else if(STATE.view==='clicom')renderCliComs();
+  else if(STATE.view==='miembros')renderMiembros();
+  else if(STATE.view==='mipanel')renderMiPanel();
+  else if(STATE.view==='perfil')renderPerfil();
+  else renderComunicados();
+}
+
+// ---------- DASHBOARD ----------
+function donut(segs,size=170,stroke=22){
+  const r=(size-stroke)/2,C=2*Math.PI*r,cx=size/2,cy=size/2;
+  const total=segs.reduce((a,s)=>a+s.value,0)||1;let acc=0;
+  const arcs=segs.filter(s=>s.value>0).map(s=>{const f=s.value/total,dash=f*C,rot=acc*360-90;acc+=f;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${stroke}" stroke-dasharray="${dash.toFixed(2)} ${(C-dash).toFixed(2)}" transform="rotate(${rot} ${cx} ${cy})"/>`;}).join('');
+  const pct=Math.round((segs[0].value/total)*100);
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="Revisado ${pct}%">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="${stroke}"/>${arcs}
+    <text x="${cx}" y="${cy-2}" text-anchor="middle" dominant-baseline="middle" font-family="var(--font-mono)" font-size="30" font-weight="700" fill="var(--text)">${pct}%</text>
+    <text x="${cx}" y="${cy+20}" text-anchor="middle" font-size="10" fill="var(--text-muted)" letter-spacing="1">REVISADO</text></svg>`;
+}
+function bars(items,max,color='var(--accent)'){
+  max=max||Math.max(...items.map(i=>i.value),1);
+  return items.map(i=>`<div class="bar-row"><span class="bar-label" title="${esc(i.label)}">${esc(i.label)}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${(i.value/max*100).toFixed(1)}%;${i.color?'background:'+i.color:''}"></div></div>
+    <span class="bar-val">${i.value.toLocaleString()}</span></div>`).join('');
+}
+function splitBar(rev,total,max,clickAttr=''){
+  const wTot=(total/max*100).toFixed(1);
+  const wRev=total?(rev/total*100).toFixed(1):0;
+  return `<div class="bar-track" ${clickAttr}><div class="bar-outer" style="width:${wTot}%"><div class="rev" style="width:${wRev}%"></div></div></div>`;
+}
+function daysLeft(d){return Math.round((new Date(d)-new Date(today))/864e5);}
+function goCat(cat){STATE.cat=cat;STATE.est='';STATE.verVenc=false;STATE.q='';navigate('/comunicados');}
+function goRec(mode){
+  STATE.cat='';STATE.q='';
+  if(mode==='venc'){STATE.verVenc=true;STATE.est='';}   // ver vencidos
+  else{STATE.est='faltan';STATE.verVenc=false;}          // pendientes / los que faltan
+  navigate('/comunicados');
+}
+function setNav(view){document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.view===view));}
+
+// ---------- MI PANEL (login por miembro · ve SUS comunicados) ----------
+function setInicioView(v){ STATE.inicioView=v; renderMiPanel(); }
+function renderMiPanel(){
+  if(!STATE.me){ showLoginGate(); return; }
+  const v=STATE.inicioView==='equipo'?'equipo':'personal';
+  const nombre=(STATE.me&&(STATE.me.nombre||STATE.me.correo))||'';
+  $('#content').innerHTML=`
+    <div class="mipanel-top">
+      <div><h1 class="page" style="margin-bottom:2px">Hola, ${esc(nombre)}</h1></div>
+      <div class="segbar" role="group" aria-label="Vista del inicio" style="margin:0">
+        <button class="seg ${v==='personal'?'active':''}" onclick="setInicioView('personal')">${svg('user')}Personal</button>
+        <button class="seg ${v==='equipo'?'active':''}" onclick="setInicioView('equipo')">${svg('team')}Equipo</button>
+      </div>
+    </div>
+    <div id="inicioBody"><div class="empty-state" style="padding:var(--sp-5)">Cargando…</div></div>`;
+  api(v==='equipo'?'/api/stats':'/api/mi-stats').then(s=>renderInicioDash(s,v)).catch(e=>{
+    if(/401|autenticad/i.test(e.message)){STATE.me=null;showLoginGate();return;}
+    const b=$('#inicioBody'); if(b)b.innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;
+  });
+}
+function renderLogin(container,onSuccess){
+  container.innerHTML=`
+    <div class="login-card">
+      <div class="login-head">${svg('user','icon icon-lg')}<b>Inicia sesión</b></div>
+      <div class="page-sub" style="margin:0 0 var(--sp-3)">Ingresa con tu correo para acceder a la plataforma.</div>
+      <form id="loginForm" autocomplete="on">
+        <label class="field"><span>Correo</span><input type="email" id="loginCorreo" required placeholder="nombre.apellido@gestionysistemas.com" autocomplete="username"></label>
+        <label class="field"><span>Contraseña</span><input type="password" id="loginPwd" required placeholder="••••••••" autocomplete="current-password"></label>
+        <div class="login-err" id="loginErr" hidden></div>
+        <button class="btn primary" type="submit" style="width:100%;justify-content:center">Entrar</button>
+      </form>
+    </div>`;
+  const f=$('#loginForm');
+  f.addEventListener('submit',async e=>{
+    e.preventDefault();
+    const correo=$('#loginCorreo').value.trim(), password=$('#loginPwd').value;
+    const err=$('#loginErr'); err.hidden=true;
+    try{
+      const r=await api('/api/login',{method:'POST',body:JSON.stringify({correo,password})});
+      STATE.me=r.miembro; toast(`Hola, ${r.miembro.nombre||r.miembro.correo}`);
+      if(onSuccess) onSuccess(); else renderMiPanel();
+    }catch(ex){ err.textContent=ex.message||'No se pudo iniciar sesión'; err.hidden=false; }
+  });
+  setTimeout(()=>$('#loginCorreo')&&$('#loginCorreo').focus(),40);
+}
+// Bloquea la plataforma en una pantalla de login propia, aparte del resto de la app.
+function showLoginGate(){
+  document.body.classList.add('locked');
+  let scr=$('#loginScreen');
+  if(!scr){ scr=document.createElement('div'); scr.id='loginScreen'; document.body.appendChild(scr); }
+  renderLogin(scr,hideLoginGate);
+}
+function hideLoginGate(){
+  document.body.classList.remove('locked');
+  const scr=$('#loginScreen'); if(scr) scr.remove();
+  boot();
+}
+async function doLogout(){
+  try{ await api('/api/logout',{method:'POST',body:'{}'}); }catch(e){}
+  STATE.me=null; toast('Sesión cerrada'); showLoginGate();
+}
+// ---------- MI PERFIL (datos del usuario + tema oscuro) ----------
+function inicialDe(me){ return ((me&&(me.nombre||me.correo)||'?').trim()[0]||'?').toUpperCase(); }
+function updateNavProfile(){
+  const el=$('#navProfile'); if(!el) return;
+  el.textContent=inicialDe(STATE.me);
+}
+// ---------- menú de perfil en el navbar (tema oscuro + cerrar sesión) ----------
+function userMenuHTML(){
+  const me=STATE.me||{};
+  const nombre=`${me.nombre||''} ${me.apellido||''}`.trim()||me.correo||'Usuario';
+  return `<div class="nav-menu-head">
+      <div class="nav-menu-name">${esc(nombre)}</div>
+      <div class="nav-menu-mail">${esc(me.correo||'')}</div></div>
+    <button class="nav-menu-item" onclick="closeUserMenu();navigate('/perfil')">${svg('user')}Mi perfil</button>
+    <div class="nav-menu-item as-row">
+      <span class="nmi-lbl">${svg('moon')}Tema oscuro</span>
+      <label class="switch"><input type="checkbox" id="menuTheme" ${isDark()?'checked':''}>
+        <span class="track"></span><span class="thumb"></span></label>
+    </div>
+    <button class="nav-menu-item danger" onclick="doLogout()">${svg('logout')}Cerrar sesión</button>`;
+}
+function toggleUserMenu(e){
+  if(e)e.stopPropagation();
+  const menu=$('#navMenu'); if(!menu) return;
+  if(menu.hasAttribute('hidden')){
+    menu.innerHTML=userMenuHTML();
+    menu.removeAttribute('hidden');
+    $('#navProfile').setAttribute('aria-expanded','true');
+    $('#menuTheme').addEventListener('change',ev=>{
+      setDark(ev.target.checked); syncThemeControls();
+      toast(ev.target.checked?'Tema oscuro activado':'Tema claro activado');
+    });
+  }else closeUserMenu();
+}
+function closeUserMenu(){
+  const menu=$('#navMenu'); if(menu){menu.setAttribute('hidden','');menu.innerHTML='';}
+  const btn=$('#navProfile'); if(btn)btn.setAttribute('aria-expanded','false');
+}
+function syncThemeControls(){
+  [$('#themeToggle'),$('#menuTheme')].forEach(el=>{if(el)el.checked=isDark();});
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('#navUser'))closeUserMenu(); });
+function isDark(){ return document.documentElement.classList.contains('dark'); }
+function setDark(on){
+  document.documentElement.classList.toggle('dark',on);
+  try{ localStorage.setItem('theme',on?'dark':'light'); }catch(e){}
+}
+function renderPerfil(){
+  const me=STATE.me||{};
+  const nombre=`${me.nombre||''} ${me.apellido||''}`.trim()||me.correo||'Usuario';
+  const ini=inicialDe(me);
+  $('#content').innerHTML=`<h1 class="page">Mi perfil</h1>
+    <div class="profile-grid">
+      <div class="profile-card">
+        <div class="profile-id">
+          <div class="profile-avatar">${esc(ini)}</div>
+          <div><div class="profile-name">${esc(nombre)}</div>
+            <div class="profile-mail">${esc(me.correo||'')}</div></div>
+        </div>
+        <div class="profile-pwd" style="border-bottom:1px solid var(--line)">
+          <div class="lbl" style="margin-bottom:var(--sp-3)">Editar mis datos</div>
+          <form id="nameForm" autocomplete="off">
+            <div class="field-pair">
+              <label class="field"><span>Nombre</span><input id="pfNombre" value="${esc(me.nombre||'')}"></label>
+              <label class="field"><span>Apellido</span><input id="pfApellido" value="${esc(me.apellido||'')}"></label>
+            </div>
+            <div class="login-err" id="nameErr" hidden style="margin-top:var(--sp-3)"></div>
+            <button class="btn primary" type="submit" style="margin-top:var(--sp-3)">${svg('check')}Guardar datos</button>
+          </form>
+        </div>
+        <div class="profile-row">
+          <div><div class="lbl">${svg('moon')} Tema oscuro</div>
+            <div class="sub">Reduce el brillo de la interfaz. Se recuerda en este navegador.</div></div>
+          <label class="switch"><input type="checkbox" id="themeToggle" ${isDark()?'checked':''}>
+            <span class="track"></span><span class="thumb"></span></label>
+        </div>
+        <div class="profile-row">
+          <div><div class="lbl">Sesión</div>
+            <div class="sub">Cierra tu sesión en este equipo.</div></div>
+          <button class="btn" onclick="doLogout()">${svg('close')}Cerrar sesión</button>
+        </div>
+      </div>
+      <div class="profile-card">
+        <div class="profile-pwd">
+          <div class="lbl" style="margin-bottom:var(--sp-1)">Cambiar contraseña</div>
+          <div class="sub" style="margin-bottom:var(--sp-3)">Necesitas tu contraseña actual para confirmar el cambio.</div>
+          <form id="pwdForm" autocomplete="off">
+            <label class="field"><span>Contraseña actual</span><input type="password" id="pwActual" required autocomplete="current-password"></label>
+            <label class="field"><span>Nueva contraseña</span><input type="password" id="pwNueva" required minlength="4" autocomplete="new-password"></label>
+            <label class="field"><span>Confirmar nueva contraseña</span><input type="password" id="pwConf" required autocomplete="new-password"></label>
+            <div class="login-err" id="pwErr" hidden></div>
+            <button class="btn primary" type="submit" style="align-self:flex-start">${svg('check')}Actualizar contraseña</button>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  $('#nameForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const nombre=$('#pfNombre').value.trim(), apellido=$('#pfApellido').value.trim();
+    const err=$('#nameErr'); err.hidden=true;
+    try{
+      const r=await api('/api/mi-perfil',{method:'POST',body:JSON.stringify({nombre,apellido})});
+      STATE.me=r.miembro; updateNavProfile(); toast('Datos actualizados.'); renderPerfil();
+    }catch(ex){ err.textContent=ex.message||'No se pudo guardar'; err.hidden=false; }
+  });
+  $('#themeToggle').addEventListener('change',e=>{
+    setDark(e.target.checked); syncThemeControls();
+    toast(e.target.checked?'Tema oscuro activado':'Tema claro activado');
+  });
+  $('#pwdForm').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const actual=$('#pwActual').value, nueva=$('#pwNueva').value, conf=$('#pwConf').value;
+    const err=$('#pwErr'); err.hidden=true;
+    if(nueva.length<4){ err.textContent='La nueva contraseña debe tener al menos 4 caracteres.'; err.hidden=false; return; }
+    if(nueva!==conf){ err.textContent='La nueva contraseña y su confirmación no coinciden.'; err.hidden=false; return; }
+    try{
+      await api('/api/cambiar-password',{method:'POST',body:JSON.stringify({actual,nueva})});
+      e.target.reset(); toast('Contraseña actualizada.');
+    }catch(ex){ err.textContent=ex.message||'No se pudo cambiar la contraseña'; err.hidden=false; }
+  });
+}
+function renderInicioDash(s,mode){
+  const body=$('#inicioBody'); if(!body) return;
+  const team=mode==='equipo';
+  const t=s.totales, rev=t.revisados, pend=t.pendientes;
+  const maxCat=Math.max(...(s.por_categoria||[]).map(c=>c.recursos),1);
+  const catBars=(s.por_categoria||[]).filter(c=>c.recursos>0).map(c=>`<div class="bar-row">
+      <span class="bar-label">${esc(c.categoria)}</span>${splitBar(c.revisados,c.recursos,maxCat)}
+      <span class="bar-val">${c.revisados}/${c.recursos}</span></div>`).join('')||'<div class="empty-state">Sin recursos aún.</div>';
+  const cliTop=s.clientes_top||[]; const maxCli=Math.max(...cliTop.map(x=>x.recursos),1);
+  const cliBars=cliTop.map(x=>`<div class="bar-row clickable" onclick="gotoCli('${esc(x.cliente).replace(/'/g,"\\'")}')" title="Ver cliente · ${esc(x.cliente)}">
+      <span class="bar-label" title="${esc(x.cliente)}">${esc(x.cliente)}</span>${splitBar(x.revisados||0,x.recursos,maxCli)}
+      <span class="bar-val">${(x.revisados||0)}/${x.recursos}</span></div>`).join('')||'<div class="empty-state">Sin clientes.</div>';
+  const ce=s.com_estado||{sin_recursos:0,sin_revisar:0,en_progreso:0,completado:0};
+  const estItems=[{k:'Completado',v:ce.completado,c:'var(--ok)'},{k:'En progreso',v:ce.en_progreso,c:'var(--accent)'},
+    {k:'Sin revisar',v:ce.sin_revisar,c:'var(--warn)'},{k:'Sin recursos',v:ce.sin_recursos,c:'var(--surface-3)'}];
+  const estTot=estItems.reduce((a,b)=>a+b.v,0)||1;
+  const estStack=`<div class="stack-bar">`+estItems.map(i=>i.v?`<div class="stack-seg" style="width:${(i.v/estTot*100).toFixed(1)}%;background:${i.c}" title="${i.k}: ${i.v}"></div>`:'').join('')+`</div>`;
+  const estLegend=`<div class="legend" style="flex-wrap:wrap;gap:8px 16px">`+estItems.map(i=>`<div><span class="dot" style="background:${i.c}"></span>${i.k} <b>${i.v}</b></div>`).join('')+`</div>`;
+  const rowLink=(p,danger)=>{
+    const dl=p.fecha_limite?daysLeft(p.fecha_limite):null;
+    const tag=danger?`<span class="status status--danger">${svg('warning')}${esc(p.fecha_limite)}</span>`
+      :`<span class="status ${dueClass(p.fecha_limite)==='--warn'?'status--warn':'status--ok'}">${svg('clock')}${esc(p.fecha_limite)}</span>`;
+    const info=danger?`hace ${Math.abs(dl)} d`:`en ${dl} d`;
+    return `<div class="dl clickable" onclick="openRecursos(${p.id})"><span class="t" title="${esc(p.titulo)}">${esc(p.titulo)}</span>${tag}
+      <span class="caption" style="white-space:nowrap">${info}</span></div>`;};
+  const prox=(s.proximos||[]).map(p=>rowLink(p,false)).join('')||'<div class="empty-state">Sin próximos vencimientos.</div>';
+  const venc=(s.vencidos_list||[]).map(p=>rowLink(p,true)).join('')||'<div class="empty-state" style="padding:var(--sp-4)">Nada vencido. 👌</div>';
+  const comLabel=team?'Comunicados':'Mis comunicados';
+  const estTitle=team?'Comunicados por estado':'Mis comunicados por estado';
+  if(!team && t.comunicados===0){
+    body.innerHTML=`<div class="empty-state" style="padding:var(--sp-6)">No tienes comunicados asignados como responsable “${esc(s.responsable)}”.</div>`;
+    return;
+  }
+  body.innerHTML=`
+    <div class="kpi-row">
+      <div class="kpi kpi--info"><span class="kpi-value">${t.comunicados}</span><span class="kpi-label">${comLabel}</span></div>
+      <div class="kpi ${pctClass(t.pct_revisado)}"><span class="kpi-value">${t.pct_revisado}%</span><span class="kpi-label">Recursos revisados</span></div>
+      <div class="kpi kpi--warn"><span class="kpi-value">${t.pendientes.toLocaleString()}</span><span class="kpi-label">Recursos pendientes</span></div>
+      <div class="kpi ${t.vencidos>0?'kpi--danger':'kpi--ok'}"><span class="kpi-value">${t.vencidos}</span><span class="kpi-label">Comunicados vencidos</span></div>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="card__head"><div class="card__title">${svg('check')}Progreso de revisión</div><span class="caption mono">${rev}/${t.recursos}</span></div>
+        <div class="donut-wrap">${donut([{value:rev,color:'var(--ok)'},{value:pend,color:'var(--warn)'}])}
+          <div class="legend"><div><span class="dot" style="background:var(--ok)"></span>Revisados <b>${rev.toLocaleString()}</b></div>
+            <div><span class="dot" style="background:var(--warn)"></span>Pendientes <b>${pend.toLocaleString()}</b></div></div></div></div>
+      <div class="card"><div class="card__head"><div class="card__title">${svg('warning')}Acción requerida · vencidos</div><span class="badge" style="background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger)">${t.vencidos}</span></div>${venc}</div>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="card__head"><div class="card__title">${svg('notice')}Recursos por categoría</div><span class="caption">revisado / total</span></div>${catBars}</div>
+      <div class="card"><div class="card__head"><div class="card__title">${svg('clock')}Próximos vencimientos</div></div>${prox}</div>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="card__head"><div class="card__title">${svg('notice')}${estTitle}</div><span class="caption mono">${t.comunicados} total</span></div>${estStack}${estLegend}</div>
+      <div class="card"><div class="card__head"><div class="card__title">${svg('building')}Clientes afectados</div><span class="caption mono">${s.clientes_afectados} clientes</span></div>${cliBars}</div>
+    </div>`;
+}
+
+// ---------- COMUNICADOS ----------
+function comStatus(c){   // estado simple derivado del avance de revisión
+  if(!c.n_recursos||c.n_revisados===0)return 'sin';        // sin revisar
+  if(c.n_revisados>=c.n_recursos)return 'done';            // completado
+  return 'proc';                                           // en proceso
+}
+function comMatch(c,q){
+  if(STATE.cat&&c.categoria!==STATE.cat)return false;
+  // Filtros por cliente/suscripción: un comunicado "afecta a todo Azure" siempre entra.
+  if(STATE.comCli.length&&!c.afecta_todas&&!STATE.comCli.some(x=>(c.clientes||[]).includes(x)))return false;
+  if(STATE.comSub.length&&!c.afecta_todas&&!STATE.comSub.some(x=>(c.suscripciones||[]).includes(x)))return false;
+  const vencido=c.fecha_limite&&c.fecha_limite<today;
+  if(vencido&&!STATE.verVenc)return false;                 // por defecto solo vigentes
+  const st=comStatus(c);
+  if(STATE.est==='faltan'&&st==='done')return false;       // "los que faltan" = no completados
+  if((STATE.est==='sin'||STATE.est==='proc'||STATE.est==='done')&&st!==STATE.est)return false;
+  if(q){const b=[c.titulo,c.resumen,c.categoria,c.responsable,c.estado,c.archivo].join(' ').toLowerCase();if(!b.includes(q))return false;}
+  return true;
+}
+function anyComFilter(){return STATE.q||STATE.cat||STATE.est!=='faltan'||STATE.verVenc||STATE.comCli.length||STATE.comSub.length;}
+// ---- Popover de filtro (pestañas Cliente/Suscripción · buscador · checks · scroll) ----
+function comFilterOptions(tab){
+  if(tab==='cliente') return (CLI.list||[]).map(c=>c.nombre).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'));
+  return [...new Set((CLI.list||[]).flatMap(c=>(c.suscripciones||[]).map(s=>s.nombre).filter(Boolean)))].sort((a,b)=>a.localeCompare(b,'es'));
+}
+function comFilterListHTML(){
+  const sel=STATE.comFilterTab==='cliente'?STATE.comCli:STATE.comSub;
+  const q=(STATE.comFilterQ||'').trim().toLowerCase();
+  const opts=comFilterOptions(STATE.comFilterTab).filter(n=>!q||n.toLowerCase().includes(q));
+  if(!opts.length) return '<div class="fp-empty">Sin coincidencias.</div>';
+  return opts.map(n=>`<label class="fp-check"><input type="checkbox" data-val="${esc(n)}" ${sel.includes(n)?'checked':''}><span title="${esc(n)}">${esc(n)}</span></label>`).join('');
+}
+function comFilterTabsHTML(){
+  const t=(id,l,n)=>`<button class="fp-tab ${STATE.comFilterTab===id?'active':''}" onclick="setComFilterTab('${id}')">${l}${n?` <span class="fp-tabn">${n}</span>`:''}</button>`;
+  return t('cliente','Cliente',STATE.comCli.length)+t('suscripcion','Suscripción',STATE.comSub.length);
+}
+function comFilters(nShown){
+  const est=STATE.est;
+  const nVenc=STATE.comunicados.filter(c=>c.fecha_limite&&c.fecha_limite<today).length;
+  const eo=(v,l)=>`<option value="${v}" ${est===v?'selected':''}>${l}</option>`;
+  const catChip=STATE.cat?`<span class="fchip">${svg('filter')}<b>${esc(STATE.cat)}</b><button title="Quitar categoría" onclick="setCat('')">${svg('close')}</button></span>`:'';
+  const nActivos=STATE.comCli.length+STATE.comSub.length;
+  const vBtn=(m,l)=>`<button class="seg ${STATE.comView===m?'active':''}" aria-pressed="${STATE.comView===m}" onclick="setComView('${m}')">${l}</button>`;
+  return `<div class="toolbar">
+    <div class="search search-lg"><span>${svg('search')}</span><input id="fsearch" placeholder="Buscar por título, resumen, responsable…" value="${esc(STATE.q)}"></div>
+    <div class="tb-filters">
+      <div class="comfilter" id="comFilter">
+        <button class="btn sm ${STATE.comFiltersOpen||nActivos?'primary':''}" id="btnFiltrar" onclick="toggleComFilters()" aria-expanded="${STATE.comFiltersOpen}" title="Filtrar por cliente y suscripción">
+          ${svg('filter')}Filtrar${nActivos?` <span class="chip-n">${nActivos}</span>`:''}
+        </button>
+        <div class="fpop" id="comFilterPop" ${STATE.comFiltersOpen?'':'hidden'}>
+          <div class="fp-tabs" id="fpTabs">${comFilterTabsHTML()}</div>
+          <div class="fp-search"><span>${svg('search')}</span><input id="fpSearch" placeholder="Buscar…" value="${esc(STATE.comFilterQ)}" autocomplete="off"></div>
+          <div class="fp-list" id="fpList">${comFilterListHTML()}</div>
+          <div class="fp-foot">
+            <span class="fp-count" id="fpCount">${nActivos} seleccionado(s)</span>
+            <button class="link-ghost" onclick="clearComCliSub()">Limpiar</button>
+          </div>
+        </div>
+      </div>
+      <select id="festado">
+        ${eo('faltan','Pendientes')}
+        ${eo('sin','Sin revisar')}
+        ${eo('proc','En proceso')}
+        ${eo('done','Completado')}
+        ${eo('','Todos los estados')}
+      </select>
+      <button class="btn sm ${STATE.verVenc?'primary':''}" id="btnVenc" onclick="toggleVenc()" title="${STATE.verVenc?'Ocultar':'Mostrar'} comunicados vencidos">
+        ${svg(STATE.verVenc?'eye':'eyeoff')}Ver vencidos${nVenc?` <span class="chip-n">${nVenc}</span>`:''}
+      </button>
+      ${catChip}
+    </div>
+    <div class="tb-spacer"></div>
+    <div class="tb-actions">
+      <div class="segbar" role="group" aria-label="Ver comunicados agrupados">
+        ${vBtn('','Lista')}${vBtn('cliente','Por cliente')}${vBtn('suscripcion','Por suscripción')}
+      </div>
+      <span class="result-count" id="rcount"><b>${nShown}</b> de ${STATE.comunicados.length}</span>
+    </div>
+  </div>`;
+}
+function renderComunicados(){
+  const list=STATE.comunicados.filter(c=>comMatch(c,STATE.q.trim().toLowerCase()));
+  $('#content').innerHTML=`<h1 class="page">Comunicados</h1>    ${comFilters(list.length)}
+    <div class="tblwrap" style="max-height:none">
+      <table class="comtbl">
+        <thead><tr>
+          <th style="width:56px">N°</th><th>Comunicado</th><th style="width:210px">Categoría</th>
+          <th style="width:190px">Fecha límite</th><th style="width:180px">Revisión</th><th style="width:120px">Acciones</th>
+        </tr></thead>
+        <tbody>${comTbody(list)}</tbody>
+      </table></div>`;
+  const fs=$('#fsearch');
+  fs.oninput=e=>{STATE.q=e.target.value;syncGlobalSearch();renderComListOnly();};
+  $('#festado').onchange=e=>{STATE.est=e.target.value;render();};
+  // Popover de filtro: buscador (rebuild solo de la lista) + checks (multi-selección, delegado)
+  const fpq=$('#fpSearch');
+  if(fpq)fpq.oninput=e=>{STATE.comFilterQ=e.target.value;const l=$('#fpList');if(l)l.innerHTML=comFilterListHTML();};
+  const fpl=$('#fpList');
+  if(fpl)fpl.addEventListener('change',e=>{
+    const cb=e.target.closest('input[type=checkbox]');if(!cb)return;
+    const arr=STATE.comFilterTab==='cliente'?STATE.comCli:STATE.comSub, i=arr.indexOf(cb.dataset.val);
+    if(cb.checked){if(i<0)arr.push(cb.dataset.val);}else if(i>=0)arr.splice(i,1);
+    renderComListOnly();updateFiltrarBadge();
+  });
+}
+function updateFiltrarBadge(){                     // refresca botón + contadores sin cerrar el popover
+  const n=STATE.comCli.length+STATE.comSub.length, b=$('#btnFiltrar');
+  if(b){b.classList.toggle('primary',!!(STATE.comFiltersOpen||n));b.innerHTML=`${svg('filter')}Filtrar${n?` <span class="chip-n">${n}</span>`:''}`;}
+  const c=$('#fpCount');if(c)c.textContent=`${n} seleccionado(s)`;
+  const tabs=$('#fpTabs');if(tabs)tabs.innerHTML=comFilterTabsHTML();
+}
+function setComFilterTab(t){STATE.comFilterTab=t;STATE.comFilterQ='';render();}
+const COM_EMPTY='<tr><td colspan="6"><div class="empty-state">Sin resultados para estos filtros.</div></td></tr>';
+function comAfectaKeys(c,by){
+  if(c.afecta_todas)return ['Afecta a todo Azure'];
+  const arr=(by==='cliente'?c.clientes:c.suscripciones)||[];
+  return arr.length?arr:[by==='cliente'?'(sin cliente asignado)':'(sin suscripción)'];
+}
+function comTbody(list){
+  if(!list.length)return COM_EMPTY;
+  if(!STATE.comView)return list.map(comRow).join('');        // vista Lista (plana)
+  const by=STATE.comView,map=new Map();
+  list.forEach(c=>comAfectaKeys(c,by).forEach(k=>{let g=map.get(k);if(!g){g=[];map.set(k,g);}g.push(c);}));
+  const keys=[...map.keys()].sort((a,b)=>{
+    const pa=a==='Afecta a todo Azure'?0:1,pb=b==='Afecta a todo Azure'?0:1;   // "todo Azure" primero
+    return pa-pb||a.localeCompare(b,'es',{numeric:true,sensitivity:'base'});
+  });
+  COMGRP.keys=keys;
+  return keys.map((k,i)=>{
+    const rows=map.get(k),col=COM_COLLAPSED.has(k);
+    const head=`<tr class="grp-head" onclick="toggleComGrp(${i})">
+      <td colspan="6"><span class="grp-arrow">${col?'▸':'▾'}</span> <b>${esc(k)}</b> <span class="caption">· ${rows.length} comunicado(s)</span></td></tr>`;
+    return head+(col?'':rows.map(comRow).join(''));
+  }).join('');
+}
+function setComView(m){STATE.comView=m;render();}
+function toggleComFilters(){STATE.comFiltersOpen=!STATE.comFiltersOpen;render();}
+function clearComCliSub(){STATE.comCli=[];STATE.comSub=[];STATE.comFilterQ='';render();}
+function toggleComGrp(i){const k=COMGRP.keys[i];if(k==null)return;COM_COLLAPSED.has(k)?COM_COLLAPSED.delete(k):COM_COLLAPSED.add(k);renderComListOnly();}
+function setCat(c){STATE.cat=c;render();}
+function toggleVenc(){STATE.verVenc=!STATE.verVenc;render();}
+function renderComListOnly(){
+  const list=STATE.comunicados.filter(c=>comMatch(c,STATE.q.trim().toLowerCase()));
+  const rc=$('#rcount');if(rc)rc.innerHTML=`<b>${list.length}</b> de ${STATE.comunicados.length}`;
+  const tb=document.querySelector('.comtbl tbody');
+  if(tb)tb.innerHTML=comTbody(list);
+}
+function syncGlobalSearch(){}   // el buscador del navbar ahora es un selector de objetos, no el filtro de comunicados
+function clearComFilters(){STATE.q='';STATE.cat='';STATE.est='faltan';STATE.verVenc=false;STATE.comCli=[];STATE.comSub=[];STATE.comFilterQ='';syncGlobalSearch();render();}
+function comRow(c){
+  const q=STATE.q.trim();
+  const pct=c.n_recursos?Math.round(c.n_revisados/c.n_recursos*100):0;
+  const cl=dueClass(c.fecha_limite);
+  const due=c.fecha_limite?`<span class="status ${cl==='--danger'?'status--danger':cl==='--warn'?'status--warn':'status--ok'}">${svg('clock')}${fmtFechaLarga(c.fecha_limite)}</span>`:'<span class="caption">—</span>';
+  const rec=c.n_recursos
+    ?`<div class="cellprog"><div class="track"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div><span class="mono">${c.n_revisados}/${c.n_recursos}</span></div>`
+    :'<span class="caption">sin recursos</span>';
+  return `<tr>
+    <td class="mono">#${esc(c.id)}</td>
+    <td class="ctitle"><b class="comlink" onclick="openRecursos(${c.id})" title="Ver detalle del comunicado">${hl(c.titulo,q)}</b>${c.responsable?`<div class="caption" style="text-transform:none">${esc(c.responsable)}</div>`:''}</td>
+    <td>${catBadge(c.categoria)}</td>
+    <td>${due}</td>
+    <td>${rec}</td>
+    <td><div class="acts">
+      <button class="btn sm btn-icon" title="Editar" onclick="openForm(${c.id})">${svg('edit')}</button>
+      <button class="btn sm btn-icon danger" title="Eliminar" onclick="delCom(${c.id})">${svg('trash')}</button>
+    </div></td></tr>`;
+}
+
+// ---------- PÁGINA RECURSOS ----------
+let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set()};
+function openRecursos(cid){navigate('/comunicados/'+cid+'/recursos');}  // navega al endpoint
+async function loadRecursos(cid){
+  RES.cid=cid;RES.com=STATE.comunicados.find(c=>c.id===cid);
+  if(!RES.com){RES.rows=[];RES.invs=[];return;}
+  RES.rows=await api(`/api/comunicados/${cid}/recursos`);
+  try{RES.invs=await api(`/api/comunicados/${cid}/inventarios`);}
+  catch(e){RES.invs=[];}   // servidor antiguo sin la ruta: no rompas la página
+  RES.invEditing=null;
+  STATE.recMode='cliente';
+  STATE.recQ='';STATE.recCli='';STATE.recSub='';STATE.recRG='';STATE.recRev='';
+  // Siempre debe haber un lote de inventario seleccionado: por defecto el más reciente.
+  STATE.recInv=(RES.invs&&RES.invs.length)?RES.invs[0].id:'';
+}
+function backToComunicados(){navigate('/comunicados');}
+function setRecMode(m){STATE.recMode=m;render();}
+function clearRecFilters(){STATE.recQ='';STATE.recCli='';STATE.recSub='';STATE.recRG='';STATE.recRev='';render();}
+function setLocal(r,val){r.revisado=val?1:0;r.revisado_por=val?'usuario':null;r.revisado_at=val?new Date().toISOString():null;}
+function recStructural(){  // filtro por cliente + suscripción + RG (base para conteos)
+  return RES.rows.filter(r=>{
+    if(STATE.recInv&&String(r.inventario_id)!==String(STATE.recInv))return false;
+    if(STATE.recCli&&(r.cliente||'(sin cliente)')!==STATE.recCli)return false;
+    if(STATE.recSub&&r.suscripcion!==STATE.recSub)return false;
+    if(STATE.recRG&&r.grupo_recurso!==STATE.recRG)return false;
+    return true;
+  });
+}
+function recFiltered(){
+  const q=(STATE.recQ||'').toLowerCase();
+  return recStructural().filter(r=>{
+    if(STATE.recRev==='rev'&&!r.revisado)return false;
+    if(STATE.recRev==='pend'&&r.revisado)return false;
+    if(q){const b=[r.suscripcion,r.grupo_recurso,r.nombre_recurso,r.estado,r.gestor].join(' ').toLowerCase();if(!b.includes(q))return false;}
+    return true;
+  });
+}
+function setRecRev(v){STATE.recRev=v;RES.selected.clear();updateBody();}
+function setSort(col){
+  const s=STATE.recSort;
+  if(s.col===col)s.dir*=-1;else{s.col=col;s.dir=1;}
+  RES.selected.clear();updateBody();
+}
+function sortArrow(col){return STATE.recSort.col===col?`<span class="sarrow">${STATE.recSort.dir>0?'↑':'↓'}</span>`:'';}
+function sortTh(label,col,cls=''){
+  const on=STATE.recSort.col===col;
+  return `<th class="${cls} sortable ${on?'sorted':''}" role="button" tabindex="0" aria-sort="${on?(STATE.recSort.dir>0?'ascending':'descending'):'none'}" onclick="setSort('${col}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setSort('${col}')}">${label}${sortArrow(col)}</th>`;
+}
+function sortRows(rows){
+  const {col,dir}=STATE.recSort;if(!col)return rows;
+  const val=r=>(col==='cliente'?r.cliente:col==='suscripcion'?r.suscripcion:r.nombre_recurso)||'';
+  return [...rows].sort((a,b)=>val(a).localeCompare(val(b),'es',{numeric:true,sensitivity:'base'})*dir);
+}
+function renderRecursos(){
+  RES.selected=new Set();   // la selección no sobrevive a un re-render de filtros/modo
+  const c=RES.com;
+  const clientesAll=[...new Set(RES.rows.map(r=>r.cliente||'(sin cliente)'))].sort();
+  const subsAll=[...new Set(RES.rows.map(r=>r.suscripcion).filter(Boolean))];
+  // Cascada cliente → suscripción → recurso
+  const subSource=STATE.recCli?RES.rows.filter(r=>(r.cliente||'(sin cliente)')===STATE.recCli):RES.rows;
+  const subs=[...new Set(subSource.map(r=>r.suscripcion).filter(Boolean))].sort();
+  const pctTot=Math.round(RES.rows.filter(r=>r.revisado).length/(RES.rows.length||1)*100);
+  const pc=pctTot>=90?'ok':pctTot>=50?'warn':'danger';
+  const gBtn=(m,ic,label)=>`<button class="seg ${STATE.recMode===m?'active':''}" aria-pressed="${STATE.recMode===m}" aria-label="Agrupar por ${label}" onclick="setRecMode('${m}')">${svg(ic)}</button>`;
+  const props=[
+    ['Recepción', c.fecha_recepcion&&fmtFechaLarga(c.fecha_recepcion)],
+    ['Fecha límite', c.fecha_limite&&fmtFechaLarga(c.fecha_limite)],
+    ['Estado', c.estado&&esc(c.estado)],
+    ['Responsable', c.responsable&&esc(c.responsable)],
+  ].filter(x=>x[1]);
+  $('#content').innerHTML=`
+    <button class="back-link" onclick="backToComunicados()"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Comunicados</button>
+    <div class="rechead">
+      <h1 class="page" style="margin:0">${esc(c.titulo)}</h1>
+      <div class="statstrip"><b>${clientesAll.length}</b> clientes · <b>${subsAll.length}</b> suscripciones · <b>${RES.rows.length}</b> recursos · <span class="status status--${pc}">${pctTot}% revisado</span></div>
+    </div>
+    <div class="rec-meta">#${esc(c.id)}${c.categoria?` · ${esc(c.categoria)}`:''} · ${esc(c.archivo||'sin archivo')}${(RES.invs&&RES.invs.length)?` · <b style="color:var(--text)">${RES.invs.length}</b> lote(s) de inventario · último: <b style="color:var(--text)">${fmtInv(RES.invs[0].fecha)}</b> (${invAgo(RES.invs[0].fecha)})`:''}</div>
+    ${c.afecta_todas?`<div class="afecta-badge">${svg('notice','icon')}Afecta a todo Azure</div>`:''}
+    ${(c.resumen||'').trim()?`<p class="rec-resumen">${esc(c.resumen)}</p>`:''}
+    ${props.length?`<div class="rec-props">${props.map(([k,v])=>`<span><span class="k">${k}:</span> <span class="v">${v}</span></span>`).join('')}</div>`:''}
+    ${(c.observaciones||'').trim()?`<div class="rec-obs"><span class="k">Observaciones</span><p>${esc(c.observaciones)}</p></div>`:''}
+    ${(c.fuente||'').trim()?`<div class="rec-fuentes"><span>Fuentes</span>${c.fuente.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(u=>`<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}">${esc(u.replace(/^https?:\/\//,''))}</a>`).join('')}</div>`:''}
+    <div id="invBox" class="inv-hist"></div>
+    <!-- FRANJA 1 -->
+    <div class="det-toolbar">
+      <div class="search grow"><span>${svg('search')}</span><input id="recq" placeholder="Buscar recurso…" value="${esc(STATE.recQ)}"></div>
+      <label class="fbtn ${STATE.recCli?'active':''}">
+        <select id="reccli" aria-label="Filtrar por cliente"><option value="">Cliente</option>${clientesAll.map(s=>`<option ${s===STATE.recCli?'selected':''}>${esc(s)}</option>`).join('')}</select>${svg('chev','icon chev')}
+      </label>
+      <label class="fbtn ${STATE.recSub?'active':''}">
+        <select id="recsub" aria-label="Filtrar por suscripción"><option value="">Suscripción</option>${subs.map(s=>`<option ${s===STATE.recSub?'selected':''}>${esc(s)}</option>`).join('')}</select>${svg('chev','icon chev')}
+      </label>
+      <span class="vdiv"></span>
+      <div class="segbar" role="group" aria-label="Agrupar por">
+        ${gBtn('cliente','building','cliente')}${gBtn('suscripcion','subscription','suscripción')}${gBtn('recurso','resource','recurso')}
+      </div>
+      <span class="vdiv"></span>
+      <div class="revpills" id="revPills" role="group" aria-label="Filtrar por estado de revisión"></div>
+      <button class="btn-icon-ghost" aria-label="Descargar CSV" title="Descargar CSV" onclick="exportCSV()">${svg('export')}</button>
+    </div>
+    <!-- FRANJA 2 / barra de selección -->
+    <div class="status-row" id="statusRow"></div>
+    <div id="recbody"></div>`;
+  renderInvHistory();
+  $('#recq').oninput=e=>{STATE.recQ=e.target.value;RES.selected.clear();updateBody();};
+  $('#reccli').onchange=e=>{STATE.recCli=e.target.value;STATE.recSub='';STATE.recRG='';render();};
+  $('#recsub').onchange=e=>{STATE.recSub=e.target.value;STATE.recRG='';render();};
+  updateBody();
+}
+function setRecCli(v){STATE.recCli=v;STATE.recSub='';STATE.recRG='';render();}
+function setRecSub(v){STATE.recSub=v;STATE.recRG='';render();}
+function setRecRG(v){STATE.recRG=v;render();}
+function setRecQ(v){STATE.recQ=v;render();}
+// ---- Historial de inventarios (lotes: fecha + query + recursos) ----
+function renderInvHistory(){
+  const el=$('#invBox');if(!el||!RES.com)return;
+  const invs=RES.invs||[];
+  const chips=invs.map(inv=>{
+    const active=String(STATE.recInv)===String(inv.id);
+    return `<button class="inv-chip ${active?'active':''}" title="${esc(inv.nota||'')}${inv.nota?' · ':''}${inv.n_recursos} recursos · ${invAgo(inv.fecha)}" onclick="filterInv(${inv.id})">${svg('clock')}<span>${fmtInv(inv.fecha)}</span></button>`;
+  }).join('');
+  const activeInv=invs.find(i=>String(i.id)===String(STATE.recInv));
+  el.innerHTML=`
+    <div class="inv-bar">
+      <span class="inv-label">${svg('clock')}Inventarios</span>
+      <div class="inv-chips">${chips||'<span class="caption">Sin lotes aún</span>'}</div>
+      <button class="btn primary sm" onclick="openForm(${RES.cid})">${svg('add')}Nuevo inventario</button>
+    </div>
+    ${activeInv?invDetail(activeInv):''}`;
+}
+function invDetail(inv){
+  if(RES.invEditing===inv.id){
+    setTimeout(()=>$('#invText')&&$('#invText').focus(),40);
+    return `<div class="inv-panel"><div class="kql-edit">
+        <textarea id="invText" placeholder="Pega aquí el query KQL de Resource Graph usado para este lote…">${esc(inv.kql||'')}</textarea>
+        <div class="form-foot"><button class="btn" onclick="cancelInvEdit()">Cancelar</button>
+          <button class="btn primary" onclick="saveInvKql(${inv.id})">${svg('check')}Guardar query</button></div>
+      </div></div>`;
+  }
+  const meta=`<span class="mono">${inv.n_recursos}</span> recursos · <span class="mono">${inv.n_clientes}</span> clientes · <span class="mono">${inv.n_subs}</span> susc${inv.nota?` · ${esc(inv.nota)}`:''}`;
+  const q=inv.kql
+    ?`<pre class="kql-code">${esc(inv.kql)}</pre>`
+    :`<div class="kql-empty">Sin query guardado para este lote. <button class="btn sm" onclick="editInv(${inv.id})">${svg('add')}Añadir query</button></div>`;
+  return `<div class="inv-panel">
+    <div class="inv-panel-head"><span class="caption">${meta}</span>
+      <div class="inv-acts">
+        ${inv.kql?`<button class="btn sm btn-icon" title="Copiar query" onclick="copyInv(${inv.id})">${svg('export')}</button>`:''}
+        <button class="btn sm btn-icon" title="Editar query" onclick="editInv(${inv.id})">${svg('edit')}</button>
+        <button class="btn sm btn-icon danger" title="Eliminar lote y sus recursos" onclick="delInv(${inv.id})">${svg('trash')}</button>
+      </div></div>
+    ${q}</div>`;
+}
+function filterInv(id){STATE.recInv=id;STATE.recCli='';STATE.recSub='';STATE.recRG='';render();}
+function editInv(id){RES.invEditing=id;renderInvHistory();}
+function cancelInvEdit(){RES.invEditing=null;renderInvHistory();}
+async function saveInvKql(id){
+  const kql=$('#invText').value;
+  try{
+    await api('/api/inventarios/'+id,{method:'PUT',body:JSON.stringify({kql})});
+    const inv=RES.invs.find(x=>x.id===id);if(inv)inv.kql=kql;
+    RES.invEditing=null;renderInvHistory();toast('Query KQL guardado.');
+  }catch(e){toast('Error: '+e.message);}
+}
+function copyInv(id){
+  const inv=RES.invs.find(x=>x.id===id);const t=(inv&&inv.kql)||'';
+  navigator.clipboard?.writeText(t).then(()=>toast('Query copiado.'),()=>toast('No se pudo copiar.'));
+}
+async function delInv(id){
+  const inv=RES.invs.find(x=>x.id===id);
+  if(!confirm(`¿Eliminar este lote de inventario y sus ${inv?inv.n_recursos:''} recursos?`))return;
+  try{
+    const r=await api('/api/inventarios/'+id,{method:'DELETE'});
+    if(String(STATE.recInv)===String(id))STATE.recInv='';
+    await loadRecursos(RES.cid);await refreshCounts();render();
+    toast(`Lote eliminado · ${r.recursos_eliminados} recursos.`);
+  }catch(e){toast('Error: '+e.message);}
+}
+function updateBody(){
+  const rows=recFiltered();
+  $('#recbody').innerHTML=STATE.recMode==='recurso'?recTable(rows):groupView(STATE.recMode,rows);
+  renderRevPills();
+  renderStatusRow();
+}
+function renderRevPills(){
+  const el=$('#revPills');if(!el)return;
+  const base=recStructural();const nBase=base.length,nRev=base.filter(r=>r.revisado).length,nPend=nBase-nRev;
+  el.innerHTML=`
+    <button class="pill ${STATE.recRev===''?'active':''}" aria-pressed="${STATE.recRev===''}" onclick="setRecRev('')">Todos <span class="chip-n">${nBase}</span></button>
+    <button class="pill ${STATE.recRev==='pend'?'active':''}" aria-pressed="${STATE.recRev==='pend'}" onclick="setRecRev('pend')">Pendientes <span class="chip-n">${nPend}</span></button>
+    <button class="pill ${STATE.recRev==='rev'?'active':''}" aria-pressed="${STATE.recRev==='rev'}" onclick="setRecRev('rev')">Revisados <span class="chip-n">${nRev}</span></button>`;
+}
+function renderStatusRow(){
+  const el=$('#statusRow');if(!el)return;
+  const sel=RES.selected.size;
+  if(sel>0){
+    el.className='status-row selbar';
+    el.innerHTML=`<div class="sel-info"><b>${sel}</b> seleccionado${sel>1?'s':''}</div>
+      <div class="sel-acts">
+        <button class="btn sm" onclick="markSelected(true)">${svg('check')}Marcar revisado</button>
+        <button class="btn sm danger" onclick="markSelected(false)">Quitar</button>
+        <button class="link-ghost" onclick="clearSelection()">Limpiar selección</button>
+      </div>`;
+    return;
+  }
+  el.className='status-row';
+  const rows=recFiltered();
+  el.innerHTML=`<span class="result-count">Mostrando ${rows.length} recurso(s)</span>`;
+}
+function toggleSelect(id,cb){
+  if(cb.checked)RES.selected.add(id);else RES.selected.delete(id);
+  cb.closest('tr').classList.toggle('sel',cb.checked);
+  const rows=recFiltered();
+  const h=document.querySelector('#recbody thead .chk input');
+  if(h)h.checked=rows.length>0&&rows.every(r=>RES.selected.has(r.id));
+  renderStatusRow();
+}
+function selectAllVisible(on){
+  recFiltered().forEach(r=>on?RES.selected.add(r.id):RES.selected.delete(r.id));
+  updateBody();
+}
+function clearSelection(){RES.selected.clear();updateBody();}
+function markSelected(val){reviewIds([...RES.selected],val);}   // reviewIds → render() limpia la selección
+function groupView(by,rows){
+  const noneLbl=by==='cliente'?'(sin cliente)':'(sin suscripción)';
+  const keyOf=r=>(by==='cliente'?(r.cliente||'(sin cliente)'):r.suscripcion)||noneLbl;
+  const map=new Map();
+  rows.forEach(r=>{
+    const key=keyOf(r);
+    let g=map.get(key);if(!g){g={key,n:0,rev:0,ids:[],subs:new Set()};map.set(key,g);}
+    g.n++;if(r.revisado)g.rev++;g.ids.push(r.id);
+    if(r.suscripcion)g.subs.add(r.suscripcion);
+  });
+  const keyCol=by==='cliente'?'cliente':'suscripcion';
+  let groups=[...map.values()].sort((a,b)=>b.n-a.n);   // por defecto: por cantidad desc
+  if(STATE.recSort.col===keyCol)  // orden alfabético si se pidió por esa columna
+    groups.sort((a,b)=>a.key.localeCompare(b.key,'es',{numeric:true,sensitivity:'base'})*STATE.recSort.dir);
+  RES._groups=groups;RES._groupBy=by;
+  const hdr2=by==='cliente'?'Suscripciones':'Recursos';
+  const trs=groups.map((g,i)=>{
+    const pct=Math.round(g.rev/g.n*100);
+    const second=by==='cliente'?`<span class="mono">${g.subs.size}</span> susc`
+      :`<span class="mono">${g.n}</span> recurso(s)`;
+    return `<tr>
+      <td class="key">${esc(g.key)}</td>
+      <td>${second}</td>
+      <td><div class="cellprog"><div class="track"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div><span class="mono">${g.rev}/${g.n}</span></div></td>
+      <td><div class="acts">
+        <button class="btn sm" onclick="drillIdx(${i})">${svg(by==='cliente'?'subscription':'resource')}Ver</button>
+        <button class="btn sm" onclick="reviewIdx(${i},true)" ${g.rev===g.n?'disabled':''}>${svg('check')}Revisar</button>
+        <button class="btn sm" onclick="reviewIdx(${i},false)" ${g.rev===0?'disabled':''}>Quitar</button>
+      </div></td></tr>`;
+  }).join('');
+  return `<div class="tblwrap"><table><thead><tr>
+    ${sortTh(by==='cliente'?'Cliente':'Suscripción',keyCol,'key')}
+    <th>${hdr2}</th>
+    <th style="width:190px">Revisión</th><th style="width:240px">Acciones</th>
+  </tr></thead><tbody>${trs||'<tr><td colspan="4"><div class="empty-state">Sin resultados.</div></td></tr>'}</tbody></table></div>`;
+}
+function recTable(rows){
+  rows=sortRows(rows);
+  const allSel=rows.length>0&&rows.every(r=>RES.selected.has(r.id));
+  return `<div class="tblwrap"><table>
+    <thead><tr><th class="chk"><input type="checkbox" ${allSel?'checked':''} aria-label="Seleccionar todos los recursos visibles" onchange="selectAllVisible(this.checked)"></th>
+      ${sortTh('Cliente','cliente','key')}${sortTh('Suscripción','suscripcion','key')}${sortTh('Nombre del Recurso','nombre_recurso','key')}
+      <th>Estado</th><th>Gestor</th><th>Añadido</th><th>Revisado por</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr class="${r.revisado?'done':''} ${RES.selected.has(r.id)?'sel':''}">
+      <td class="chk"><input type="checkbox" ${RES.selected.has(r.id)?'checked':''} aria-label="Seleccionar recurso ${esc(r.nombre_recurso||'')}" onchange="toggleSelect(${r.id},this)"></td>
+      <td class="key ${r.cliente?'':'empty'}">${r.cliente?esc(r.cliente):'—'}</td>
+      <td class="key ${r.suscripcion?'':'empty'}">${r.suscripcion?esc(r.suscripcion):'—'}</td>
+      <td class="key ${r.nombre_recurso?'':'empty'}">${r.nombre_recurso?esc(r.nombre_recurso):'—'}</td>
+      <td class="${r.estado?'':'empty'}">${r.estado?esc(r.estado):'—'}</td>
+      <td class="${r.gestor?'':'empty'}">${r.gestor?esc(r.gestor):'—'}</td>
+      <td class="${r.created_at?'mono':'empty'}" title="${esc(r.created_at?fmtInv(r.created_at)+' · '+invAgo(r.created_at):'')}">${r.created_at?fmtInv(r.created_at):'—'}</td>
+      <td class="${r.revisado_por?'':'empty'}">${r.revisado_por?esc(r.revisado_por)+(r.revisado_at?' · '+r.revisado_at.slice(0,10):''):'—'}</td>
+    </tr>`).join('')||'<tr><td colspan="8"><div class="empty-state">Sin recursos con estos filtros.</div></td></tr>'}</tbody></table></div>`;
+}
+function drillIdx(i){
+  const g=RES._groups[i],by=RES._groupBy;
+  if(by==='cliente'){STATE.recCli=g.key;STATE.recSub='';STATE.recMode='suscripcion';}   // cliente → sus suscripciones
+  else{STATE.recSub=g.key;STATE.recMode='recurso';}                                     // suscripción → sus recursos
+  render();
+}
+async function reviewIdx(i,val){await reviewIds(RES._groups[i].ids,val);}
+async function toggleRev(id,val){
+  await api(`/api/recursos/${id}`,{method:'PATCH',body:JSON.stringify({revisado:val})});
+  setLocal(RES.rows.find(x=>x.id===id),val);
+  await refreshCounts();updateBody();
+}
+async function reviewIds(ids,val){
+  if(!ids.length)return;
+  const res=await api('/api/recursos/bulk-review',{method:'POST',body:JSON.stringify({ids,revisado:val})});
+  ids.forEach(id=>{const r=RES.rows.find(x=>x.id===id);if(r)setLocal(r,val);});
+  await refreshCounts();render();toast(`${res.actualizados} recurso(s) ${val?'revisados':'sin revisar'}.`);
+}
+function reviewFiltered(val){reviewIds(recFiltered().map(r=>r.id),val);}
+async function refreshCounts(){
+  [STATE.stats,STATE.comunicados]=await Promise.all([api('/api/stats'),api('/api/comunicados')]);
+}
+function exportCSV(){
+  const cols=['Cliente','Suscripción','Suscripción ID','Grupo de Recurso','Nombre del Recurso','Estado','Gestor','Añadido (inventario)','Revisado','Revisado por','Notas'];
+  const q=v=>`"${(v??'').toString().replace(/"/g,'""')}"`;
+  const lines=[cols.map(q).join(',')];
+  sortRows(recFiltered()).forEach(r=>lines.push([r.cliente,r.suscripcion,r.suscripcion_id,r.grupo_recurso,r.nombre_recurso,r.estado,r.gestor,(r.created_at||'').slice(0,10),r.revisado?'Sí':'No',r.revisado_por,r.notas].map(q).join(',')));
+  const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`recursos_${RES.cid}.csv`;a.click();
+}
+
+// ---------- PÁGINA MIEMBROS (base para el login futuro) ----------
+let MIEM={list:[],pendingQ:''};
+async function renderMiembros(){
+  try{MIEM.list=await api('/api/miembros');}catch(e){$('#content').innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;return;}
+  $('#content').innerHTML=`
+    <div class="rechead"><h1 class="page" style="margin:0">Miembros</h1>
+      <div class="statstrip"><b>${MIEM.list.length}</b> miembros</div></div>    <div class="toolbar">
+      <div class="search search-lg"><span>${svg('search')}</span><input id="miemq" placeholder="Buscar por correo, nombre o apellido…" oninput="renderMiemList()"></div>
+      <div class="tb-spacer"></div>
+      <div class="tb-actions"><button class="btn primary sm" onclick="openMiemForm()">${svg('add')}Nuevo miembro</button></div>
+    </div>
+    <div class="tblwrap" style="max-height:none"><table class="clitbl">
+      <thead><tr><th>Correo</th><th style="width:200px">Nombre</th><th style="width:200px">Apellido</th><th style="width:88px">Acciones</th></tr></thead>
+      <tbody id="miemList"></tbody></table></div>`;
+  if(MIEM.pendingQ){const i=$('#miemq');if(i)i.value=MIEM.pendingQ;MIEM.pendingQ='';}
+  renderMiemList();
+}
+function renderMiemList(){
+  const q=($('#miemq')?.value||'').toLowerCase();
+  const list=MIEM.list.filter(m=>!q||[m.correo,m.nombre,m.apellido].filter(Boolean).join(' ').toLowerCase().includes(q));
+  const el=$('#miemList');if(!el)return;
+  el.innerHTML=list.map(m=>`<tr>
+    <td><div class="member-id"><span class="tbl-avatar">${esc(inicialDe(m))}</span><span>${hl(m.correo,q)}</span></div></td>
+    <td class="${m.nombre?'':'empty'}">${m.nombre?hl(m.nombre,q):'—'}</td>
+    <td class="${m.apellido?'':'empty'}">${m.apellido?hl(m.apellido,q):'—'}</td>
+    <td><div class="acts">
+      <button class="btn sm btn-icon" title="Editar miembro" onclick="openMiemForm(${m.id})">${svg('edit')}</button>
+      <button class="btn sm btn-icon danger" title="Eliminar miembro" onclick="delMiem(${m.id})">${svg('trash')}</button>
+    </div></td></tr>`).join('')||'<tr><td colspan="4"><div class="empty-state">Sin miembros que coincidan.</div></td></tr>';
+}
+function openMiemForm(id){
+  const m=id?MIEM.list.find(x=>x.id===id):null;
+  $('#modal').className='modal sm';
+  $('#modal').innerHTML=`<div class="mhead"><div><h2>${id?'Editar':'Nuevo'} miembro</h2></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <div class="field full"><label>Correo</label><input id="m_correo" type="email" autocomplete="off" value="${m?esc(m.correo):''}"></div>
+      <div class="field-pair">
+        <div class="field"><label>Nombre</label><input id="m_nombre" value="${m?esc(m.nombre||''):''}" ${id?'readonly':''}></div>
+        <div class="field"><label>Apellido</label><input id="m_apellido" value="${m?esc(m.apellido||''):''}" ${id?'readonly':''}></div>
+      </div>
+      ${id?'<div class="caption" style="text-transform:none;margin:-4px 0 4px">El nombre y apellido los edita cada miembro desde su “Mi perfil”.</div>':''}
+      <div class="field full"><label>Contraseña ${id?'<span class="caption" style="text-transform:none">(dejar en blanco para mantener la actual)</span>':''}</label>
+        <input id="m_pwd" type="password" autocomplete="new-password" placeholder="${id?'••••••••':'Contraseña de acceso'}"></div>
+      <div id="formErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="saveMiem(${id||0})">${svg('check')}Guardar</button></div></div>`;
+  openModal();setTimeout(()=>$('#m_correo')&&$('#m_correo').focus(),50);
+}
+async function saveMiem(id){
+  const correo=$('#m_correo').value.trim(),nombre=$('#m_nombre').value.trim(),
+        apellido=$('#m_apellido').value.trim(),password=$('#m_pwd').value;
+  if(!correo){showFormErr('El correo es obligatorio.');return;}
+  if(!id&&!password){showFormErr('La contraseña es obligatoria para un miembro nuevo.');return;}
+  try{
+    if(id)await api('/api/miembros/'+id,{method:'PUT',body:JSON.stringify({correo,nombre,apellido,password})});
+    else await api('/api/miembros',{method:'POST',body:JSON.stringify({correo,nombre,apellido,password})});
+    MIEM.list=await api('/api/miembros');closeModal();toast(id?'Miembro actualizado.':'Miembro creado.');
+  }catch(e){showFormErr(esc(e.message));}
+}
+async function delMiem(id){
+  if(!confirm('¿Eliminar este miembro?'))return;
+  try{await api('/api/miembros/'+id,{method:'DELETE'});MIEM.list=await api('/api/miembros');renderMiemList();toast('Miembro eliminado.');}
+  catch(e){toast('Error: '+e.message);}
+}
+function gotoMiembros(term){MIEM.pendingQ=term||'';navigate('/miembros');}
+
+// ---------- PÁGINA CLIENTES (tabla con desplegables) ----------
+let CLI={list:[],expanded:new Set()};
+async function renderClientes(){
+  try{CLI.list=await api('/api/clientes');}catch(e){$('#content').innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;return;}
+  const nsub=CLI.list.reduce((a,c)=>a+c.suscripciones.length,0);
+  $('#content').innerHTML=`
+    <div class="rechead"><h1 class="page" style="margin:0">Clientes</h1>
+      <div class="statstrip"><b>${CLI.list.length}</b> clientes · <b>${nsub}</b> suscripciones</div></div>    <div class="toolbar">
+      <div class="search search-lg"><span>${svg('search')}</span><input id="cliq" placeholder="Buscar cliente, suscripción o id…" oninput="renderCliList()"></div>
+      <div class="tb-spacer"></div>
+      <div class="tb-actions"><button class="btn primary sm" onclick="openCliForm()">${svg('add')}Nuevo cliente</button></div>
+    </div>
+    <div class="tblwrap" style="max-height:none"><table class="clitbl comtbl">
+      <thead><tr><th style="width:34px"></th><th>Cliente</th><th style="width:300px">ID</th><th style="width:88px">Acciones</th></tr></thead>
+      <tbody id="cliList"></tbody></table></div>
+    <div class="sincli-foot">
+      <button class="link-ghost" id="btnSinCli" onclick="toggleSinCliente()">Ver suscripciones sin cliente</button>
+      <div id="sinCliBox"></div>
+    </div>`;
+  SINCLI.open=false;
+  if(CLI.pendingQ){const i=$('#cliq');if(i)i.value=CLI.pendingQ;CLI.pendingQ='';}   // filtro traído del buscador global
+  renderCliList();
+}
+let SINCLI={open:false,rows:[]};
+async function toggleSinCliente(){
+  SINCLI.open=!SINCLI.open;
+  const box=$('#sinCliBox'),btn=$('#btnSinCli');
+  if(!box)return;
+  if(!SINCLI.open){box.innerHTML='';if(btn)btn.textContent='Ver suscripciones sin cliente';return;}
+  if(btn)btn.textContent='Ocultar suscripciones sin cliente';
+  box.innerHTML='<div class="empty-state" style="padding:var(--sp-4)">Cargando…</div>';
+  try{renderSinCli(await api('/api/suscripciones-sin-cliente'));}
+  catch(e){box.innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;}
+}
+function renderSinCli(l){
+  const box=$('#sinCliBox');if(!box)return;
+  SINCLI.rows=l;
+  if(!l.length){box.innerHTML='<div class="empty-state" style="padding:var(--sp-4)">No hay suscripciones sin cliente. 👌</div>';return;}
+  box.innerHTML=`<div class="tblwrap" style="max-height:none;margin-top:8px"><table class="clitbl">
+    <thead><tr><th>Suscripción</th><th style="width:300px">ID</th><th style="width:88px">Acciones</th></tr></thead>
+    <tbody>${l.map((s,i)=>`<tr>
+      <td class="s-name">${svg('subscription','icon')}<span>${esc(s.suscripcion||'(sin nombre)')}</span></td>
+      <td class="mono ${s.suscripcion_id?'':'empty'}">${s.suscripcion_id?esc(s.suscripcion_id):'sin id'}</td>
+      <td><div class="acts">
+        <button class="btn sm btn-icon" title="Editar suscripción" onclick="openSinCliEdit(${i})">${svg('edit')}</button>
+        <button class="btn sm btn-icon" title="Asignar a un cliente" onclick="openAsignarCli(${i})">${svg('building')}</button>
+      </div></td></tr>`).join('')}</tbody></table></div>`;
+}
+async function refreshSinCli(){renderSinCli(await api('/api/suscripciones-sin-cliente'));}
+function openSinCliEdit(i){
+  const s=SINCLI.rows[i];if(!s)return;
+  $('#modal').className='modal sm';
+  $('#modal').innerHTML=`<div class="mhead"><div><h2>Editar suscripción</h2><div class="sub">Sin cliente asignado</div></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <div class="field full"><label>Nombre de la suscripción</label><input id="sc_nombre" value="${esc(s.suscripcion||'')}"></div>
+      <div class="field full"><label>ID de la suscripción</label><input id="sc_id" class="mono" value="${esc(s.suscripcion_id||'')}"></div>
+      <div id="formErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="doSinCliEdit(${i})">${svg('check')}Guardar</button></div></div>`;
+  openModal();setTimeout(()=>$('#sc_nombre')&&$('#sc_nombre').focus(),50);
+}
+async function doSinCliEdit(i){
+  const s=SINCLI.rows[i];if(!s)return;
+  const nombre=$('#sc_nombre').value.trim(),sub_id=$('#sc_id').value.trim();
+  if(!nombre&&!sub_id){showFormErr('Ingresa el nombre o el id.');return;}
+  try{
+    const r=await api('/api/suscripciones-sin-cliente',{method:'PUT',body:JSON.stringify(
+      {suscripcion:s.suscripcion||'',suscripcion_id:s.suscripcion_id||'',nuevo_nombre:nombre,nuevo_id:sub_id})});
+    closeModal();await refreshCli();await refreshSinCli();
+    toast('Suscripción actualizada'+(r.recursos_asignados?` · ${r.recursos_asignados} recurso(s) asignados a cliente`:'')+'.');
+  }catch(e){showFormErr(esc(e.message));}
+}
+function openAsignarCli(i){
+  const s=SINCLI.rows[i];if(!s)return;
+  const opts=CLI.list.map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  $('#modal').className='modal sm';
+  $('#modal').innerHTML=`<div class="mhead"><div><h2>Asignar cliente</h2><div class="sub">${esc(s.suscripcion||s.suscripcion_id||'(sin nombre)')}</div></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <div class="field full"><label>Cliente</label>
+        <select id="asig_cli" onchange="document.getElementById('asig_new_wrap').classList.toggle('hidden',this.value!=='__new__')">
+          <option value="">— Selecciona un cliente —</option>
+          ${opts}
+          <option value="__new__">➕ Nuevo cliente…</option>
+        </select></div>
+      <div class="field full hidden" id="asig_new_wrap"><label>Nombre del nuevo cliente</label><input id="asig_new"></div>
+      <div id="formErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="doAsignar(${i})">${svg('check')}Asignar</button></div></div>`;
+  openModal();setTimeout(()=>$('#asig_cli')&&$('#asig_cli').focus(),50);
+}
+async function doAsignar(i){
+  const s=SINCLI.rows[i];if(!s)return;
+  const sel=$('#asig_cli').value;
+  if(!sel){showFormErr('Selecciona un cliente.');return;}
+  try{
+    let cid;
+    if(sel==='__new__'){
+      const nombre=$('#asig_new').value.trim();
+      if(!nombre){showFormErr('Escribe el nombre del nuevo cliente.');return;}
+      cid=(await api('/api/clientes',{method:'POST',body:JSON.stringify({nombre})})).id;
+    }else cid=+sel;
+    const r=await api(`/api/clientes/${cid}/suscripciones`,{method:'POST',
+      body:JSON.stringify({nombre:s.suscripcion||'',sub_id:s.suscripcion_id||''})});
+    closeModal();await refreshCli();await refreshSinCli();
+    toast('Suscripción asignada'+(r.recursos_asociados?` · ${r.recursos_asociados} recurso(s) asociados`:'')+'.');
+  }catch(e){showFormErr(esc(e.message));}
+}
+function renderCliList(){
+  const q=($('#cliq')?.value||'').toLowerCase();
+  const list=CLI.list.filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.suscripciones.some(s=>(s.nombre||'').toLowerCase().includes(q)||(s.sub_id||'').toLowerCase().includes(q)));
+  const el=$('#cliList');if(!el)return;
+  el.innerHTML=list.map(c=>cliRow(c,q)).join('')||'<tr><td colspan="4"><div class="empty-state">Sin clientes que coincidan.</div></td></tr>';
+}
+let CLIDET={id:null,cliente:null,comunicados:[],ok:false};
+async function loadCliComs(id){
+  try{const d=await api(`/api/clientes/${id}/comunicados`);
+    CLIDET={id,cliente:d.cliente,comunicados:d.comunicados||[],ok:d.cliente!=null};
+  }catch(e){CLIDET={id,cliente:null,comunicados:[],ok:false};toast('Error: '+e.message);}
+}
+function openCliComs(id){navigate('/clientes/'+id+'/comunicados');}   // vista aparte al hacer clic en el nombre
+function renderCliComs(){
+  const d=CLIDET,coms=d.comunicados||[];
+  const rows=coms.map(m=>`<tr class="clicom-row" onclick="openRecursos(${m.id})" title="Ver detalle del comunicado">
+     <td class="cc-title"><b>${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
+     <td>${m.categoria?catBadge(m.categoria):''}</td>
+     <td>${m.estado?esc(m.estado):'<span class="caption">—</span>'}</td>
+     <td class="cc-due ${m.fecha_limite?'':'empty'}">${m.fecha_limite?fmtFechaLarga(m.fecha_limite):'—'}</td>
+   </tr>`).join('');
+  $('#content').innerHTML=`
+    <button class="back-link" onclick="navigate('/clientes')"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Clientes</button>
+    <div class="rechead"><h1 class="page" style="margin:0">${esc(d.cliente||'Cliente')}</h1>
+      <div class="statstrip"><b>${coms.length}</b> comunicado(s) que le afectan</div></div>    ${coms.length?`<div class="tblwrap" style="max-height:none;margin-top:var(--sp-3)"><table class="clitbl cli-coms-tbl">
+      <thead><tr><th>Comunicado</th><th>Categoría</th><th style="width:150px">Estado</th><th style="width:200px">Fecha límite</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`
+     :'<div class="empty-state">Ningún comunicado le afecta todavía.</div>'}`;
+}
+function cliRow(c,q){
+  const open=q?true:CLI.expanded.has(c.id);   // al buscar, se expande para ver coincidencias
+  const subRows=c.suscripciones.map(s=>`<tr>
+      <td class="s-name">${svg('subscription','icon')}<span>${esc(s.nombre||'(sin nombre)')}</span></td>
+      <td class="mono ${s.sub_id?'':'empty'}">${s.sub_id?esc(s.sub_id):'sin id'}</td>
+      <td><div class="acts">
+        <button class="btn-icon-ghost" title="Editar suscripción" onclick="openSubForm(${s.id})">${svg('edit')}</button>
+        <button class="btn-icon-ghost danger" title="Quitar suscripción" onclick="delSub(${s.id})">${svg('close')}</button>
+      </div></td></tr>`).join('');
+  const detail=!open?'':`<tr class="clidetail"><td></td><td colspan="3">
+    <table class="subtbl"><thead><tr><th>Suscripción</th><th>ID</th><th style="width:74px"></th></tr></thead>
+      <tbody>
+        ${subRows||'<tr><td colspan="3" class="caption" style="padding:8px 4px">Sin suscripciones aún.</td></tr>'}
+        <tr class="subadd">
+          <td><input id="sn_${c.id}" placeholder="Nombre de suscripción"></td>
+          <td><input id="si_${c.id}" class="mono" placeholder="ID de la suscripción"></td>
+          <td><button class="btn sm" onclick="addSub(${c.id})">${svg('add')}Agregar</button></td>
+        </tr>
+      </tbody></table></td></tr>`;
+  const nsub=c.suscripciones.length;
+  return `<tr class="clirow ${open?'open':''}" onclick="if(!event.target.closest('.acts')&&!event.target.closest('.comlink'))toggleCli(${c.id})">
+    <td class="chev-cell"><span class="chev-ic">${svg('chev','icon')}</span></td>
+    <td class="ctitle"><b class="comlink" title="Ver comunicados que le afectan" onclick="event.stopPropagation();openCliComs(${c.id})">${hl(c.nombre,q)}</b><div class="caption" style="text-transform:none">${nsub} ${nsub===1?'suscripción':'suscripciones'}</div></td>
+    <td class="mono ${c.ext_id?'':'empty'}">${c.ext_id?esc(c.ext_id):'—'}</td>
+    <td><div class="acts">
+      <button class="btn sm btn-icon" title="Editar cliente" onclick="openCliForm(${c.id})">${svg('edit')}</button>
+      <button class="btn sm btn-icon danger" title="Eliminar cliente" onclick="delCli(${c.id})">${svg('trash')}</button>
+    </div></td></tr>${detail}`;
+}
+function toggleCli(id){CLI.expanded.has(id)?CLI.expanded.delete(id):CLI.expanded.add(id);renderCliList();}
+async function refreshCli(){CLI.list=await api('/api/clientes');renderCliList();}
+async function addSub(cid){
+  const nombre=$('#sn_'+cid).value.trim(),sub_id=$('#si_'+cid).value.trim();
+  if(!nombre&&!sub_id){toast('Ingresa el nombre o el id de la suscripción.');return;}
+  try{const r=await api(`/api/clientes/${cid}/suscripciones`,{method:'POST',body:JSON.stringify({nombre,sub_id})});
+    CLI.expanded.add(cid);await refreshCli();toast('Suscripción agregada'+(r.recursos_asociados?` · ${r.recursos_asociados} recursos asociados`:'')+'.');
+  }catch(e){toast('Error: '+e.message);}
+}
+async function delSub(sid){if(!confirm('¿Quitar esta suscripción del cliente?'))return;
+  try{await api('/api/suscripciones/'+sid,{method:'DELETE'});await refreshCli();toast('Suscripción quitada.');}catch(e){toast('Error: '+e.message);}}
+async function delCli(cid){if(!confirm('¿Eliminar este cliente y todas sus suscripciones?'))return;
+  try{await api('/api/clientes/'+cid,{method:'DELETE'});await refreshCli();toast('Cliente eliminado.');}catch(e){toast('Error: '+e.message);}}
+function openCliForm(id){
+  const c=id?CLI.list.find(x=>x.id===id):null;
+  $('#modal').className='modal sm';
+  $('#modal').innerHTML=`<div class="mhead"><div><h2>${id?'Editar':'Nuevo'} cliente</h2></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <div class="field full"><label>Nombre del cliente</label><input id="cli_nombre" value="${c?esc(c.nombre):''}"></div>
+      <div class="field full"><label>ID del cliente (tenant)</label><input id="cli_ext" class="mono" value="${c?esc(c.ext_id||''):''}"></div>
+      <div id="formErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="saveCli(${id||0})">${svg('check')}Guardar</button></div></div>`;
+  openModal();setTimeout(()=>$('#cli_nombre')&&$('#cli_nombre').focus(),50);
+}
+async function saveCli(id){
+  const nombre=$('#cli_nombre').value.trim(),ext_id=$('#cli_ext').value.trim();
+  if(!nombre){showFormErr('El nombre es obligatorio.');return;}
+  try{
+    if(id)await api('/api/clientes/'+id,{method:'PUT',body:JSON.stringify({nombre,ext_id})});
+    else await api('/api/clientes',{method:'POST',body:JSON.stringify({nombre,ext_id})});
+    closeModal();toast(id?'Cliente actualizado.':'Cliente creado.');
+  }catch(e){showFormErr(esc(e.message));}
+}
+function openSubForm(sid){
+  let sub=null,cli=null;
+  for(const c of CLI.list){const s=c.suscripciones.find(x=>x.id===sid);if(s){sub=s;cli=c;break;}}
+  if(!sub)return;
+  $('#modal').className='modal sm';
+  $('#modal').innerHTML=`<div class="mhead"><div><h2>Editar suscripción</h2><div class="sub">Cliente: ${esc(cli.nombre)}</div></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <div class="field full"><label>Nombre de la suscripción</label><input id="sub_nombre" value="${esc(sub.nombre||'')}"></div>
+      <div class="field full"><label>ID de la suscripción</label><input id="sub_id" class="mono" value="${esc(sub.sub_id||'')}"></div>
+      <div id="formErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" onclick="saveSub(${sid},${cli.id})">${svg('check')}Guardar</button></div></div>`;
+  openModal();setTimeout(()=>$('#sub_nombre')&&$('#sub_nombre').focus(),50);
+}
+async function saveSub(sid,cid){
+  const nombre=$('#sub_nombre').value.trim(),sub_id=$('#sub_id').value.trim();
+  if(!nombre&&!sub_id){showFormErr('Ingresa el nombre o el id.');return;}
+  try{const r=await api('/api/suscripciones/'+sid,{method:'PUT',body:JSON.stringify({nombre,sub_id})});
+    CLI.expanded.add(cid);closeModal();toast('Suscripción actualizada'+(r.recursos_asociados?` · ${r.recursos_asociados} recursos asociados`:'')+'.');
+  }catch(e){showFormErr(esc(e.message));}
+}
+
+// ---------- FORM comunicado ----------
+const CATS=["Compute","Almacenamiento","Redes","Bases de datos","Datos y Analítica",
+ "Contenedores","Seguridad e Identidad","Gobernanza y Monitoreo","FinOps y Reservas","Otros"];
+const ESTADOS=["Sin revisar","En proceso","Completado"];
+function fuenteRow(val=''){
+  return `<div class="link-row"><input class="fuente-link" type="url" placeholder="https://…" value="${esc(val)}">
+    <button type="button" class="btn-icon-ghost danger" title="Quitar link" onclick="this.closest('.link-row').remove()">${svg('close')}</button></div>`;
+}
+function addFuenteLink(val){$('#fuenteLinks')?.insertAdjacentHTML('beforeend',fuenteRow(typeof val==='string'?val:''));}
+function getFuente(){return [...document.querySelectorAll('#fuenteLinks .fuente-link')].map(i=>i.value.trim()).filter(Boolean).join('\n');}
+const F=[['titulo','Título *'],['categoria','Categoría'],['fecha_recepcion','Fecha recepción'],
+ ['fecha_limite','Fecha límite'],['responsable','Responsable'],['estado','Estado'],['fuente','Fuente oficial'],
+ ['resumen','Resumen'],['observaciones','Observaciones']];
+async function openForm(id){
+  let c={};if(id){c=await api('/api/comunicados/'+id);}
+  const cur=id?STATE.comunicados.find(x=>x.id===id):null;
+  const nRes=cur?cur.n_recursos:0;
+  const f=(k,l)=>{
+    if(k==='titulo')return '';   // el título va en la cabecera (editable)
+    if(k==='categoria'||k==='estado'){
+      const val=c[k]||'';
+      const opts=k==='categoria'?CATS:ESTADOS;
+      const extra=val&&!opts.includes(val)?`<option value="${esc(val)}" selected>${esc(val)}</option>`:'';
+      return `<div class="field"><label>${l}</label><select id="f_${k}">
+        <option value="">— Selecciona —</option>${extra}
+        ${opts.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
+    }
+    if(k==='responsable'){   // selector de miembros (el nombre completo se guarda como responsable)
+      const val=c[k]||'';
+      const opts=[...new Set((MIEM.list||[])
+        .map(m=>`${m.nombre||''} ${m.apellido||''}`.trim()||m.correo).filter(Boolean))]
+        .sort((a,b)=>a.localeCompare(b,'es'));
+      const extra=val&&!opts.includes(val)?`<option value="${esc(val)}" selected>${esc(val)}</option>`:'';
+      return `<div class="field"><label>${l}</label><select id="f_${k}">
+        <option value="">— Selecciona —</option>${extra}
+        ${opts.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
+    }
+    if(k==='fuente'){
+      const links=(c[k]||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+      const rows=(links.length?links:['']).map(fuenteRow).join('');
+      return `<div class="field full"><label>${l}</label>
+        <div id="fuenteLinks" class="link-list">${rows}</div>
+        <button type="button" class="btn sm" style="align-self:flex-start;margin-top:6px" onclick="addFuenteLink()">${svg('add')}Añadir link</button></div>`;
+    }
+    const long=['resumen','observaciones'].includes(k);const date=k.startsWith('fecha');
+    const cls=k==='resumen'?' class="bigtext"':k==='observaciones'?' class="medtext"':'';
+    return `<div class="field ${long?'full':''}"><label>${l}</label>${long?`<textarea id="f_${k}"${cls}>${esc(c[k]||'')}</textarea>`:`<input id="f_${k}" ${date?'type="date"':''} value="${esc(c[k]||'')}">`}</div>`;};
+  $('#modal').className='modal md';
+  $('#modal').innerHTML=`<div class="mhead">
+      <div style="flex:1;min-width:0">
+        <input id="f_titulo" class="title-edit" placeholder="Nombre del comunicado" value="${esc(c.titulo||'')}">
+        <div class="sub">${id?`#${id} · editar comunicado`:'Nuevo comunicado'}</div>
+      </div>
+      <button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <label class="afecta-all">
+        <input type="checkbox" id="f_afecta_todas" ${c.afecta_todas?'checked':''}>
+        <span><b>Afecta a todo Azure</b> — aplica a todas las suscripciones de todos los clientes.</span>
+      </label>
+      <div class="form-2col">
+      <div class="col">
+        ${f('categoria','Categoría')}
+        <div class="field-pair">${f('fecha_recepcion','Fecha recepción')}${f('fecha_limite','Fecha límite')}</div>
+        ${f('responsable','Responsable')}
+        ${f('estado','Estado')}
+        <div class="form-section">Inventario de recursos</div>
+        <div class="field"><label>Archivo — Excel (.xlsx) o CSV</label>
+          <input type="file" id="f_file" accept=".csv,.xlsx,.xlsm">
+          <div class="upload-note">Debe incluir columnas para
+            <b style="color:var(--accent)">Suscripción</b>,
+            <b style="color:var(--accent)">Grupo de Recurso (RG)</b> y
+            <b style="color:var(--accent)">Nombre del Recurso</b> (variantes como <span class="mono">subscriptionName, resourceGroup, ResourceName…</span>).
+            <a onclick="downloadTemplate()">Descargar plantilla CSV</a>.
+            Cada carga crea un <b>lote de inventario</b> nuevo con su fecha y query.
+          </div>
+        </div>
+      </div>
+      <div class="col">
+        ${f('resumen','Resumen')}
+        ${f('observaciones','Observaciones')}
+        ${f('fuente','Fuente oficial')}
+        <div class="field"><label>Query KQL de este inventario (opcional)</label>
+          <textarea id="f_kql" class="mono" style="min-height:96px" placeholder="Resources&#10;| where type =~ 'microsoft.compute/virtualmachines'&#10;| project subscriptionId, resourceGroup, name"></textarea>
+        </div>
+        <div class="field"><label>Nota del lote (opcional)</label>
+          <input id="f_nota" placeholder="p. ej. Corrida mensual, alcance ampliado…"></div>
+      </div>
+    </div>
+    <div id="formErr" class="formerr hidden"></div>
+    <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn primary" id="saveBtn" onclick="saveCom(${id||0})">${svg('check')}Guardar</button></div></div>`;
+  openModal();setTimeout(()=>$('#f_titulo')&&$('#f_titulo').focus(),50);
+}
+function showFormErr(m){const e=$('#formErr');if(e){e.innerHTML=m;e.classList.remove('hidden');}else toast(m);}
+function downloadTemplate(){
+  const csv='Suscripcion,Grupo de Recurso,Nombre del Recurso,Estado,Gestor\nMi-Suscripcion-Prod,RG-ejemplo,vm-ejemplo-01,Pendiente,Nombre Gestor\n';
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='plantilla_recursos.csv';a.click();
+}
+async function saveCom(id){
+  const data={};F.forEach(x=>{if(x[0]==='fuente')return;const el=$('#f_'+x[0]);if(el)data[x[0]]=el.value.trim();});
+  data.fuente=getFuente();
+  data.afecta_todas=$('#f_afecta_todas')?.checked?1:0;
+  if(!data.titulo){showFormErr('El título (nombre del comunicado) es obligatorio.');return;}
+  const file=$('#f_file').files[0];
+  const replace=$('#f_replace')?.checked;
+  const kql=$('#f_kql')?.value||'';
+  const nota=$('#f_nota')?.value||'';
+  const btn=$('#saveBtn');btn.disabled=true;
+  try{
+    let cid=id;
+    if(id) await api('/api/comunicados/'+id,{method:'PUT',body:JSON.stringify(data)});
+    else cid=(await api('/api/comunicados',{method:'POST',body:JSON.stringify(data)})).id;
+    let imported=0;
+    if(file){
+      const ext=(file.name.split('.').pop()||'').toLowerCase();
+      const buf=await file.arrayBuffer();
+      const qs=[]; if(replace)qs.push('replace=1');
+      if(kql.trim())qs.push('kql='+encodeURIComponent(kql));
+      if(nota.trim())qs.push('nota='+encodeURIComponent(nota));
+      const r=await fetch(`/api/comunicados/${cid}/import`+(qs.length?'?'+qs.join('&'):''),{method:'POST',headers:{'X-Ext':ext},body:buf});
+      const j=await r.json();
+      if(!r.ok){
+        await loadAll();
+        showFormErr((id?'Cambios guardados, pero ':'Comunicado creado, pero ')+'el archivo fue <b>rechazado</b>:<br>'+esc(j.error));
+        btn.disabled=false;return;
+      }
+      imported=j.importados;
+    }
+    await loadAll();
+    if(STATE.view==='recursos'&&RES.cid===cid)await loadRecursos(cid);
+    closeModal();render();
+    toast((id?'Comunicado actualizado':'Comunicado creado')+(file?` · ${imported} recursos en un nuevo lote`:'')+'.');
+  }catch(e){showFormErr('Error: '+esc(e.message));btn.disabled=false;}
+}
+async function delCom(id){
+  if(!confirm('¿Eliminar este comunicado y todos sus recursos?'))return;
+  await api('/api/comunicados/'+id,{method:'DELETE'});
+  await loadAll();render();toast('Comunicado eliminado.');
+}
+
+// ---------- modal helpers ----------
+function openModal(){$('#overlay').classList.add('open');document.body.style.overflow='hidden';}
+function closeModal(){$('#overlay').classList.remove('open');document.body.style.overflow='';render();}
+$('#overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#overlay').classList.contains('open'))closeModal();});
+document.addEventListener('keydown',e=>{
+  const t=e.target;
+  if((e.key==='Enter'||e.key===' ')&&t.classList&&t.classList.contains('kpi')&&t.classList.contains('clickable')){e.preventDefault();t.click();}
+});
+
+// ---------- init ----------
+// Arranque: login obligatorio. Sin sesión no se carga nada de la plataforma.
+async function boot(){
+  let me=null;
+  try{ me=(await api('/api/me')).miembro; }
+  catch(e){ $('#content').innerHTML=`<div class="empty-state">No se pudo conectar al servidor.<br>Ejecuta <b>python app.py</b> y abre <b>http://localhost:8765</b>.<br><br>${esc(e.message)}</div>`; return; }
+  STATE.me=me||null;
+  if(!STATE.me){ showLoginGate(); return; }
+  document.body.classList.remove('locked');
+  try{ await loadAll(); }
+  catch(e){ $('#content').innerHTML=`<div class="empty-state">No se pudo cargar la plataforma.<br><br>${esc(e.message)}</div>`; return; }
+  updateNavProfile();
+  route();
+}
+boot();
