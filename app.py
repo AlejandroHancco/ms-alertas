@@ -68,6 +68,23 @@ def list_comunicados():
         FROM recursos GROUP BY comunicado_id
     """).fetchall():
         afect[r["comunicado_id"]] = (list(r["clientes"] or []), list(r["suscripciones"] or []))
+    # Completitud por cliente y por suscripcion (columna "Revision" segun el toggle).
+    # Un cliente/suscripcion cuenta como revisado cuando TODOS sus recursos del comunicado lo estan.
+    # Las suscripciones sin cliente no se cuentan (mismo criterio que los filtros).
+    rev_cli, rev_sub = {}, {}
+    for r in con.execute("""
+        SELECT comunicado_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE rev = tot) AS n_rev
+        FROM (SELECT comunicado_id, cliente, COUNT(*) AS tot, COALESCE(SUM(revisado),0) AS rev
+              FROM recursos WHERE COALESCE(cliente,'')<>'' GROUP BY comunicado_id, cliente) t
+        GROUP BY comunicado_id""").fetchall():
+        rev_cli[r["comunicado_id"]] = (r["n"], r["n_rev"])
+    for r in con.execute("""
+        SELECT comunicado_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE rev = tot) AS n_rev
+        FROM (SELECT comunicado_id, suscripcion, COUNT(*) AS tot, COALESCE(SUM(revisado),0) AS rev
+              FROM recursos WHERE COALESCE(suscripcion,'')<>'' AND COALESCE(cliente,'')<>''
+              GROUP BY comunicado_id, suscripcion) t
+        GROUP BY comunicado_id""").fetchall():
+        rev_sub[r["comunicado_id"]] = (r["n"], r["n_rev"])
     con.close()
     out = []
     for r in rows:
@@ -75,6 +92,8 @@ def list_comunicados():
         cl, su = afect.get(d["id"], ([], []))
         d["clientes"] = cl
         d["suscripciones"] = su
+        d["n_clientes"], d["n_clientes_rev"] = rev_cli.get(d["id"], (0, 0))
+        d["n_subs"], d["n_subs_rev"] = rev_sub.get(d["id"], (0, 0))
         out.append(d)
     return out
 
