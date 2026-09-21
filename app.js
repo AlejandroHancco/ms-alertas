@@ -1556,6 +1556,10 @@ function openInvForm(cid){
               <div class="dz-sub">.xlsx · .csv</div>
             </div>
           </label>
+          <div class="afecta-row" style="margin-top:10px" title="Registra un lote sin recursos: historial de que se revisó y no hay nada afectado (no exige archivo)">
+            <span>No hay recursos afectados</span>
+            <label class="switch"><input type="checkbox" id="iv_nores" onchange="ivToggleNoRes()"><span class="track"></span><span class="thumb"></span></label>
+          </div>
           <div class="upload-note">Debe incluir columnas para
             <b style="color:var(--accent)">Suscripción</b>, <b style="color:var(--accent)">Grupo de Recurso (RG)</b> y
             <b style="color:var(--accent)">Nombre del Recurso</b>. Al guardar se crea un <b>lote nuevo</b> y se cargan las tablas.
@@ -1574,8 +1578,6 @@ function openInvForm(cid){
       <div id="ivErr" class="formerr hidden"></div>
       <div class="form-foot">
         <button class="btn" onclick="closeModal()">Cancelar</button>
-        <span style="flex:1"></span>
-        <button class="btn" id="ivEmpty" onclick="saveInvEmpty(${cid})" title="Registra un lote sin recursos: queda como historial de que se revisó y no hay nada afectado">No hay recursos afectados</button>
         <button class="btn primary" id="ivSave" onclick="saveInvNew(${cid})">${svg('check')}Guardar</button>
       </div>
     </div>`;
@@ -1586,7 +1588,14 @@ function openInvForm(cid){
   fi.onchange=showName;
   ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
   ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
-  dz.addEventListener('drop',e=>{if(e.dataTransfer.files&&e.dataTransfer.files.length){fi.files=e.dataTransfer.files;showName();}});
+  dz.addEventListener('drop',e=>{if($('#iv_nores')?.checked)return;if(e.dataTransfer.files&&e.dataTransfer.files.length){fi.files=e.dataTransfer.files;showName();}});
+}
+// Toggle "No hay recursos afectados": bloquea la subida de archivo.
+function ivToggleNoRes(){
+  const on=$('#iv_nores').checked, dz=$('#iv_drop'), fi=$('#iv_file');
+  fi.disabled=on; dz.classList.toggle('disabled',on);
+  if(on){ fi.value=''; dz.classList.remove('has-file'); $('#iv_dzname').textContent='Sin recursos afectados — no se subirá archivo'; }
+  else{ $('#iv_dzname').textContent='Arrastra el archivo aquí o haz clic para elegir'; }
 }
 function ivKqlMode(mode){
   const sel=$('#iv_kqlsel'), ta=$('#iv_kql');
@@ -1600,8 +1609,9 @@ function ivKqlPick(){
 }
 function ivFormErr(m){const e=$('#ivErr');if(e){e.innerHTML=m;e.classList.remove('hidden');}else toast(m);}
 async function saveInvNew(cid){
+  if($('#iv_nores')?.checked) return saveInvEmpty(cid);   // lote sin recursos afectados
   const file=$('#iv_file').files[0];
-  if(!file){ivFormErr('Debes seleccionar un archivo .xlsx o .csv.');return;}
+  if(!file){ivFormErr('Selecciona un archivo .xlsx/.csv o activa "No hay recursos afectados".');return;}
   const kql=$('#iv_kql').value||'';
   const btn=$('#ivSave');btn.disabled=true;
   try{
@@ -1620,7 +1630,7 @@ async function saveInvNew(cid){
 // Lote sin recursos: historial de "revisado, nada afectado" (no exige archivo).
 async function saveInvEmpty(cid){
   const kql=$('#iv_kql').value||'';
-  const btn=$('#ivEmpty');btn.disabled=true;
+  const btn=$('#ivSave');btn.disabled=true;
   try{
     const j=await api(`/api/comunicados/${cid}/inventarios`,{method:'POST',body:JSON.stringify({kql})});
     await loadRecursos(cid);await refreshCounts();

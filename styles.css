@@ -546,6 +546,7 @@ html.dark mark{background:#6b5600;color:#fdf1b8}
 .dropzone:hover{border-color:var(--accent)}
 .dropzone.drag{border-color:var(--accent);background:var(--accent-bg,var(--surface-3))}
 .dropzone.has-file{border-style:solid;border-color:var(--ok-border);background:var(--ok-bg)}
+.dropzone.disabled{opacity:.5;pointer-events:none;filter:grayscale(1)}
 .dz-inner{display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
 .dz-icon{width:28px;height:28px;color:var(--text-muted);transform:rotate(180deg)}
 .dropzone.has-file .dz-icon{color:var(--ok)}
