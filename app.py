@@ -112,7 +112,7 @@ def list_inventarios(cid):
 
 def update_inventario(iid, data):
     con = db(); sets=[]; vals=[]
-    for f in ("kql","nota","fecha"):
+    for f in ("kql","fecha"):
         if f in data: sets.append(f+"=?"); vals.append(data[f])
     if sets:
         con.execute(f"UPDATE inventarios SET {','.join(sets)} WHERE id=?", vals+[iid]); con.commit()
@@ -218,7 +218,7 @@ def stats():
 # ------------------------- mutaciones -------------------------
 COM_FIELDS = ["n","titulo","categoria","fecha_recepcion","fecha_limite","resumen",
               "fuente","archivo","estado","responsable","ultima_actualizacion",
-              "proxima_actualizacion","observaciones","kql","afecta_todas"]
+              "proxima_actualizacion","observaciones","kql","afecta_todas","archivado"]
 
 def _norm_com(data):
     """Normaliza el flag booleano 'afecta a todas las suscripciones' a 0/1."""
@@ -584,13 +584,10 @@ def add_recurso(cid, data):
     con = db()
     cli = cliente_para(data.get("suscripcion",""), data.get("suscripcion_id",""))
     ts = NOW()
-    # agrupa las altas manuales del dia en un mismo lote
-    inv = con.execute("""SELECT id FROM inventarios
-        WHERE comunicado_id=? AND nota='Altas manuales'
-          AND left(fecha,10)=to_char(now(),'YYYY-MM-DD')""", (cid,)).fetchone()
-    inv = inv[0] if inv else con.execute(
-        "INSERT INTO inventarios(comunicado_id,fecha,kql,nota,created_at) VALUES(?,?,?,?,?)",
-        (cid, ts, "", "Altas manuales", ts)).lastrowid
+    # cada alta manual crea su propio lote (sin campo nota)
+    inv = con.execute(
+        "INSERT INTO inventarios(comunicado_id,fecha,kql,created_at) VALUES(?,?,?,?)",
+        (cid, ts, "", ts)).lastrowid
     con.execute("""INSERT INTO recursos
       (comunicado_id,hoja,cliente,suscripcion,suscripcion_id,grupo_recurso,nombre_recurso,gestor,estado,extra,revisado,notas,created_at,inventario_id)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -631,7 +628,7 @@ def _read_table(ext, raw):
     return header[:last], [r[:last] for r in rows[hidx + 1:]]
 
 
-def import_recursos(cid, ext, raw, replace=False, kql="", nota=""):
+def import_recursos(cid, ext, raw, replace=False, kql=""):
     con = db()
     if not con.execute("SELECT 1 FROM comunicados WHERE id=?", (cid,)).fetchone():
         con.close(); raise ValueError("Comunicado no existe.")
@@ -658,8 +655,8 @@ def import_recursos(cid, ext, raw, replace=False, kql="", nota=""):
         con.execute("DELETE FROM recursos WHERE comunicado_id=?", (cid,))
         con.execute("DELETE FROM inventarios WHERE comunicado_id=?", (cid,))
     ts = NOW()   # un solo sello para todo el lote = un evento de inventariado
-    inv = con.execute("INSERT INTO inventarios(comunicado_id,fecha,kql,nota,created_at) VALUES(?,?,?,?,?)",
-                      (cid, ts, kql or "", nota or "", ts)).lastrowid
+    inv = con.execute("INSERT INTO inventarios(comunicado_id,fecha,kql,created_at) VALUES(?,?,?,?)",
+                      (cid, ts, kql or "", ts)).lastrowid
     n = 0
     for r in data:
         cell = lambda i: r[i] if (i is not None and i < len(r)) else ""
@@ -735,6 +732,10 @@ class H(BaseHTTPRequestHandler):
         return None
     def _me(self):
         return member_from_sid(self._sid())
+    def _who(self):
+        # Nombre a estampar en "revisado por": el usuario autenticado (no lo que mande el cliente).
+        me = self._me() or {}
+        return (f"{me.get('nombre','') or ''} {me.get('apellido','') or ''}").strip() or me.get("correo") or "usuario"
     def _json_body(self):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or "{}") if n else {}
@@ -806,9 +807,8 @@ class H(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query)
                 replace = "replace" in qs
                 kql = (qs.get("kql") or [""])[0]
-                nota = (qs.get("nota") or [""])[0]
                 with LOCK:
-                    return self._send(200, import_recursos(int(m_imp.group(1)), ext, raw, replace, kql, nota))
+                    return self._send(200, import_recursos(int(m_imp.group(1)), ext, raw, replace, kql))
             except Exception as e:
                 return self._send(400, {"error": str(e)})
         try:
@@ -832,7 +832,9 @@ class H(BaseHTTPRequestHandler):
                 if p == "/api/comunicados": return self._send(201, add_comunicado(data))
                 if p == "/api/clientes": return self._send(201, add_cliente(data))
                 if p == "/api/miembros": return self._send(201, add_miembro(data))
-                if p == "/api/recursos/bulk-review": return self._send(200, bulk_review(data))
+                if p == "/api/recursos/bulk-review":
+                    data["revisado_por"] = self._who()
+                    return self._send(200, bulk_review(data))
                 m = re.match(r"/api/clientes/(\d+)/suscripciones$", p)
                 if m: return self._send(201, add_suscripcion(int(m.group(1)), data))
                 m = re.match(r"/api/comunicados/(\d+)/recursos$", p)
@@ -880,7 +882,8 @@ class H(BaseHTTPRequestHandler):
         m = re.match(r"/api/recursos/(\d+)$", urlparse(self.path).path)
         if not m: return self._send(404, {"error":"ruta"})
         try:
-            with LOCK: return self._send(200, patch_recurso(int(m.group(1)), self._json_body()))
+            data = self._json_body(); data["revisado_por"] = self._who()
+            with LOCK: return self._send(200, patch_recurso(int(m.group(1)), data))
         except Exception as e: return self._send(400, {"error": str(e)})
 
     def do_DELETE(self):

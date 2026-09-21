@@ -306,8 +306,8 @@ def seed(conn):
             mf = fidx.get(k) or fidx.get(norm(archivo))
         if mf:
             inv = cur.execute(
-                "INSERT INTO inventarios(comunicado_id,fecha,kql,nota,created_at) VALUES(?,?,?,?,?)",
-                (cid, seed_ts, "", "Carga inicial", seed_ts)).lastrowid
+                "INSERT INTO inventarios(comunicado_id,fecha,kql,created_at) VALUES(?,?,?,?)",
+                (cid, seed_ts, "", seed_ts)).lastrowid
             got = 0
             for sh in best_sheets(mf):
                 for row in sh["rows"]:

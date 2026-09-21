@@ -26,6 +26,8 @@ const IC = {
  home:'<path d="M3 11 12 4l9 7"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
  moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>',
  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+ archive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/>',
+ unarchive:'<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M12 18v-6m0 0-2.4 2.4M12 12l2.4 2.4"/>',
 };
 function svg(name,cls='icon'){
   return `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[name]||''}</svg>`;
@@ -77,7 +79,7 @@ const CAT_COLORS={"Compute":"#58a6ff","Almacenamiento":"#d29922","Redes":"#2dd4b
 function catColor(c){return CAT_COLORS[c]||"#8b98a9";}
 function catBadge(c){return c?`<span class="cbadge" style="--c:${catColor(c)}">${esc(c)}</span>`:'<span class="caption">—</span>';}
 
-let STATE={view:'mipanel',stats:null,comunicados:[],q:'',cat:'',est:'faltan',verVenc:false,comCli:[],comSub:[],comView:'',comFiltersOpen:false,comFilterTab:'cliente',comFilterQ:'',recSort:{col:null,dir:1},comSort:{col:'fecha_limite',dir:1},comPage:0,comPageSize:25,comScope:null};
+let STATE={view:'mipanel',stats:null,comunicados:[],q:'',cat:'',est:'faltan',verVenc:false,comCli:[],comSub:[],comView:'',comFiltersOpen:false,comFilterTab:'cliente',comFilterQ:'',recSort:{col:null,dir:1},comSort:{col:'fecha_limite',dir:1},comPage:0,comPageSize:25,comScope:null,verArch:false,recFiltersOpen:false,recFilterTab:'cliente',recFilterQ:''};
 let COMGRP={keys:[]};                 // claves de los grupos visibles (índice → clave)
 const COM_COLLAPSED=new Set();        // grupos colapsados (por clave)
 
@@ -172,6 +174,8 @@ function gsSources(q){
   return out;
 }
 function gotoCli(term){CLI.pendingQ=term||'';navigate('/clientes');}
+// Desde "Clientes afectados" en Inicio: ir directo a los comunicados del cliente.
+function gotoCliComs(nombre){const id=clienteIdPorNombre(nombre);if(id)navigate('/clientes/'+id+'/comunicados');else gotoCli(nombre);}
 function gotoComQ(term){STATE.q=term||'';STATE.cat='';STATE.est='';STATE.verVenc=true;navigate('/comunicados');}
 function gsRender(raw){
   const box=$('#gsResults'),q=(raw||'').trim();
@@ -217,6 +221,13 @@ document.addEventListener('click',e=>{
   STATE.comFiltersOpen=false;
   const p=$('#comFilterPop');if(p)p.hidden=true;
   const b=$('#btnFiltrar');if(b){b.setAttribute('aria-expanded','false');b.classList.toggle('primary',!!(STATE.comCli.length+STATE.comSub.length));}
+});
+// mismo comportamiento para el popover de filtro de recursos
+document.addEventListener('click',e=>{
+  if(!STATE.recFiltersOpen||e.target.closest('#recFilter'))return;
+  STATE.recFiltersOpen=false;
+  const p=$('#recFilterPop');if(p)p.hidden=true;
+  const b=$('#btnRecFiltrar');if(b){b.setAttribute('aria-expanded','false');b.classList.toggle('primary',!!(STATE.recCli.length+STATE.recSub.length));}
 });
 
 function render(){
@@ -459,7 +470,7 @@ function renderInicioDash(s,mode){
       <div class="bar-track"><div class="bar-outer" style="width:${(c.comunicados/maxCat*100).toFixed(1)}%;background:${catColor(c.categoria)}"></div></div>
       <span class="bar-val">${c.comunicados}</span></div>`).join('')||'<div class="empty-state">Sin comunicados.</div>';
   const cliTop=s.clientes_top||[]; const maxCli=Math.max(...cliTop.map(x=>x.recursos),1);
-  const cliBars=cliTop.map(x=>`<div class="bar-row clickable" onclick="gotoCli('${esc(x.cliente).replace(/'/g,"\\'")}')" title="Ver cliente · ${esc(x.cliente)}">
+  const cliBars=cliTop.map(x=>`<div class="bar-row clickable" onclick="gotoCliComs('${esc(x.cliente).replace(/'/g,"\\'")}')" title="Ver comunicados de ${esc(x.cliente)}">
       <span class="bar-label" title="${esc(x.cliente)}">${esc(x.cliente)}</span>${splitBar(x.revisados||0,x.recursos,maxCli)}
       <span class="bar-val">${(x.revisados||0)}/${x.recursos}</span></div>`).join('')||'<div class="empty-state">Sin clientes.</div>';
   const estItems=[{k:'Completado',v:ce.completado,c:'var(--ok)'},{k:'En progreso',v:ce.en_progreso,c:'var(--accent)'},
@@ -513,7 +524,16 @@ function comStatus(c){   // estado simple derivado del avance de revisión
   if(c.n_revisados>=c.n_recursos)return 'done';            // completado
   return 'proc';                                           // en proceso
 }
+// Estado autocalculado (etiqueta + color) desde el avance de revisión — reemplaza al antiguo campo manual.
+function comEstadoInfo(c){
+  const nr=c.n_recursos||0, nv=c.n_revisados||0;
+  if(!nr)     return {label:'Sin recursos', st:''};
+  if(nv>=nr)  return {label:'Completado',  st:'status--ok'};
+  if(nv===0)  return {label:'Sin revisar', st:'status--danger'};
+  return              {label:'En proceso', st:'status--warn'};
+}
 function comMatch(c,q){
+  if(STATE.verArch?!c.archivado:!!c.archivado)return false;   // archivados: ocultos salvo en "Ver archivados"
   if(STATE.cat&&c.categoria!==STATE.cat)return false;
   // Filtros por cliente/suscripción: un comunicado "afecta a todo Azure" siempre entra.
   if(STATE.comCli.length&&!c.afecta_todas&&!STATE.comCli.some(x=>(c.clientes||[]).includes(x)))return false;
@@ -523,7 +543,7 @@ function comMatch(c,q){
   const st=comStatus(c);
   if(STATE.est==='faltan'&&st==='done')return false;       // "los que faltan" = no completados
   if((STATE.est==='sin'||STATE.est==='proc'||STATE.est==='done')&&st!==STATE.est)return false;
-  if(q){const b=[c.titulo,c.resumen,c.categoria,c.responsable,c.estado,c.archivo].join(' ').toLowerCase();if(!b.includes(q))return false;}
+  if(q){const b=[c.titulo,c.resumen,c.categoria,c.responsable,c.archivo].join(' ').toLowerCase();if(!b.includes(q))return false;}
   return true;
 }
 function anyComFilter(){return STATE.q||STATE.cat||STATE.est!=='faltan'||STATE.verVenc||STATE.comCli.length||STATE.comSub.length;}
@@ -549,7 +569,8 @@ function comEstadoHTML(){
 }
 function setComEstado(v){STATE.est=v;STATE.comPage=0;render();}
 function comFilters(nShown){
-  const nVenc=STATE.comunicados.filter(c=>c.fecha_limite&&c.fecha_limite<today).length;
+  const nVenc=STATE.comunicados.filter(c=>!c.archivado&&c.fecha_limite&&c.fecha_limite<today).length;
+  const nArch=STATE.comunicados.filter(c=>c.archivado).length;
   const catChip=STATE.cat?`<span class="fchip">${svg('filter')}<b>${esc(STATE.cat)}</b><button title="Quitar categoría" onclick="setCat('')">${svg('close')}</button></span>`:'';
   const nActivos=STATE.comCli.length+STATE.comSub.length+(STATE.est!=='faltan'?1:0);
   const vBtn=(m,l)=>`<button class="seg ${STATE.comView===m?'active':''}" aria-pressed="${STATE.comView===m}" onclick="setComView('${m}')">${l}</button>`;
@@ -577,6 +598,9 @@ function comFilters(nShown){
       </div>
       <button class="btn sm ${STATE.verVenc?'primary':''}" id="btnVenc" onclick="toggleVenc()" title="${STATE.verVenc?'Ocultar':'Mostrar'} comunicados vencidos">
         ${svg(STATE.verVenc?'eye':'eyeoff')}Ver vencidos${nVenc?` <span class="chip-n">${nVenc}</span>`:''}
+      </button>
+      <button class="btn sm ${STATE.verArch?'primary':''}" id="btnArch" onclick="toggleArch()" title="${STATE.verArch?'Volver a los activos':'Ver comunicados archivados'}">
+        ${svg('archive')}Archivados${nArch?` <span class="chip-n">${nArch}</span>`:''}
       </button>
       ${catChip}
     </div>
@@ -729,6 +753,7 @@ function clearComCliSub(){STATE.comCli=[];STATE.comSub=[];STATE.comFilterQ='';ST
 function toggleComGrp(i){const k=COMGRP.keys[i];if(k==null)return;COM_COLLAPSED.has(k)?COM_COLLAPSED.delete(k):COM_COLLAPSED.add(k);renderComListOnly();}
 function setCat(c){STATE.cat=c;STATE.comPage=0;render();}
 function toggleVenc(){STATE.verVenc=!STATE.verVenc;STATE.comPage=0;render();}
+function toggleArch(){STATE.verArch=!STATE.verArch;STATE.comPage=0;render();}
 function renderComListOnly(){
   const list=comFilteredList();
   const tb=document.querySelector('.comtbl tbody');
@@ -753,18 +778,23 @@ function comRow(c){
   const due=c.fecha_limite?`<span class="status ${cl==='--danger'?'status--danger':cl==='--warn'?'status--warn':'status--ok'}">${svg('clock')}${fmtFechaLarga(c.fecha_limite)}</span>`:'<span class="caption">—</span>';
   return `<tr>
     <td class="mono">#${esc(c.id)}</td>
-    <td class="ctitle"><b class="comlink" onclick="openRecursos(${c.id})" title="Ver detalle del comunicado">${hl(c.titulo,q)}</b>${c.responsable?`<div class="caption" style="text-transform:none">${esc(c.responsable)}</div>`:''}</td>
+    <td class="ctitle"><b class="comlink" onclick="openRecursos(${c.id})" title="Ver detalle del comunicado">${hl(c.titulo,q)}</b>${c.archivado?` <span class="tag-arch">Archivado</span>`:''}${c.responsable?`<div class="caption" style="text-transform:none">${esc(c.responsable)}</div>`:''}</td>
     <td>${catBadge(c.categoria)}</td>
     <td>${due}</td>
     <td>${comRevCell(c)}</td>
     <td><div class="acts">
       <button class="btn sm btn-icon" title="Editar" onclick="openForm(${c.id})">${svg('edit')}</button>
+      ${c.archivado
+        ?`<button class="btn sm btn-icon" title="Restaurar" onclick="archiveCom(${c.id},0)">${svg('unarchive')}</button>`
+        :`<button class="btn sm btn-icon" title="Archivar" onclick="archiveCom(${c.id},1)">${svg('archive')}</button>`}
       <button class="btn sm btn-icon danger" title="Eliminar" onclick="delCom(${c.id})">${svg('trash')}</button>
     </div></td></tr>`;
 }
 
 // ---------- PÁGINA RECURSOS ----------
-let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set()};
+let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set(),invKqlOpen:null};
+// Nombre del usuario logueado para el sello de "revisado por" (optimista; el servidor lo re-sella).
+function meName(){const m=STATE.me||{};return `${m.nombre||''} ${m.apellido||''}`.trim()||m.correo||'usuario';}
 function openRecursos(cid){navigate('/comunicados/'+cid+'/recursos');}  // navega al endpoint
 async function loadRecursos(cid){
   RES.cid=cid;RES.com=STATE.comunicados.find(c=>c.id===cid);
@@ -772,21 +802,22 @@ async function loadRecursos(cid){
   RES.rows=await api(`/api/comunicados/${cid}/recursos`);
   try{RES.invs=await api(`/api/comunicados/${cid}/inventarios`);}
   catch(e){RES.invs=[];}   // servidor antiguo sin la ruta: no rompas la página
-  RES.invEditing=null;
+  RES.invEditing=null;RES.invKqlOpen=null;
   STATE.recMode='cliente';
-  STATE.recQ='';STATE.recCli='';STATE.recSub='';STATE.recRG='';STATE.recRev='';
+  STATE.recQ='';STATE.recCli=[];STATE.recSub=[];STATE.recRG='';STATE.recRev='';
+  STATE.recFiltersOpen=false;STATE.recFilterTab='cliente';STATE.recFilterQ='';
   // Siempre debe haber un lote de inventario seleccionado: por defecto el más reciente.
   STATE.recInv=(RES.invs&&RES.invs.length)?RES.invs[0].id:'';
 }
 function backToComunicados(){navigate('/comunicados');}
 function setRecMode(m){STATE.recMode=m;render();}
-function clearRecFilters(){STATE.recQ='';STATE.recCli='';STATE.recSub='';STATE.recRG='';STATE.recRev='';render();}
-function setLocal(r,val){r.revisado=val?1:0;r.revisado_por=val?'usuario':null;r.revisado_at=val?new Date().toISOString():null;}
+function clearRecFilters(){STATE.recQ='';STATE.recCli=[];STATE.recSub=[];STATE.recRG='';STATE.recRev='';STATE.recFilterQ='';render();}
+function setLocal(r,val){r.revisado=val?1:0;r.revisado_por=val?meName():null;r.revisado_at=val?new Date().toISOString():null;}
 function recStructural(){  // filtro por cliente + suscripción + RG (base para conteos)
   return RES.rows.filter(r=>{
     if(STATE.recInv&&String(r.inventario_id)!==String(STATE.recInv))return false;
-    if(STATE.recCli&&(r.cliente||'(sin cliente)')!==STATE.recCli)return false;
-    if(STATE.recSub&&r.suscripcion!==STATE.recSub)return false;
+    if(STATE.recCli.length&&!STATE.recCli.includes(r.cliente||'(sin cliente)'))return false;
+    if(STATE.recSub.length&&!STATE.recSub.includes(r.suscripcion))return false;
     if(STATE.recRG&&r.grupo_recurso!==STATE.recRG)return false;
     return true;
   });
@@ -800,7 +831,7 @@ function recFiltered(){
     return true;
   });
 }
-function setRecRev(v){STATE.recRev=v;RES.selected.clear();updateBody();}
+function setRecRev(v){STATE.recRev=v;RES.selected.clear();updateBody();const el=$('#fpRecEsts');if(el)el.innerHTML=recEstadoHTML();updateRecFiltrarBadge();}
 function setSort(col){
   const s=STATE.recSort;
   if(s.col===col)s.dir*=-1;else{s.col=col;s.dir=1;}
@@ -816,117 +847,185 @@ function sortRows(rows){
   const val=r=>(col==='cliente'?r.cliente:col==='suscripcion'?r.suscripcion:r.nombre_recurso)||'';
   return [...rows].sort((a,b)=>val(a).localeCompare(val(b),'es',{numeric:true,sensitivity:'base'})*dir);
 }
+// ---- Popover de filtro de recursos (espejo del de comunicados: Estado de revisión · pestañas Cliente/Suscripción · buscador · checks) ----
+function recFilterOptions(tab){
+  if(tab==='cliente') return [...new Set(RES.rows.map(r=>r.cliente||'(sin cliente)'))].sort((a,b)=>a.localeCompare(b,'es'));
+  // Solo suscripciones con cliente asignado, igual que antes.
+  const conCli=new Set(RES.rows.filter(r=>(r.cliente||'').trim()).map(r=>r.suscripcion).filter(Boolean));
+  return [...conCli].sort((a,b)=>a.localeCompare(b,'es'));
+}
+function recFilterListHTML(){
+  const sel=STATE.recFilterTab==='cliente'?STATE.recCli:STATE.recSub;
+  const q=(STATE.recFilterQ||'').trim().toLowerCase();
+  const opts=recFilterOptions(STATE.recFilterTab).filter(n=>!q||n.toLowerCase().includes(q));
+  if(!opts.length) return '<div class="fp-empty">Sin coincidencias.</div>';
+  return opts.map(n=>`<label class="fp-check"><input type="checkbox" data-val="${esc(n)}" ${sel.includes(n)?'checked':''}><span title="${esc(n)}">${esc(n)}</span></label>`).join('');
+}
+function recFilterTabsHTML(){
+  const t=(id,l,n)=>`<button class="fp-tab ${STATE.recFilterTab===id?'active':''}" onclick="setRecFilterTab('${id}')">${l}${n?` <span class="fp-tabn">${n}</span>`:''}</button>`;
+  return t('cliente','Cliente',STATE.recCli.length)+t('suscripcion','Suscripción',STATE.recSub.length);
+}
+const REC_ESTADOS=[['','Todos'],['pend','Pendientes'],['rev','Revisados']];
+function recEstadoHTML(){
+  return REC_ESTADOS.map(([v,l])=>`<button class="fp-est ${STATE.recRev===v?'active':''}" onclick="setRecRev('${v}')">${l}</button>`).join('');
+}
+// Ficha del comunicado sobre la tabla: descripción/observaciones/fuentes a la izquierda, campos clave a la derecha.
+function recInfoHTML(c){
+  const fuentes=(c.fuente||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const main=[];
+  if((c.resumen||'').trim()) main.push(`<div class="rec-block"><span class="rec-k">Descripción</span><p class="rec-desc">${esc(c.resumen)}</p></div>`);
+  if((c.observaciones||'').trim()) main.push(`<div class="rec-block"><span class="rec-k">Observaciones</span><p class="rec-desc">${esc(c.observaciones)}</p></div>`);
+  if(fuentes.length) main.push(`<div class="rec-block"><span class="rec-k">Fuentes</span><div class="rec-fuentes">${fuentes.map(u=>`<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}">${esc(u.replace(/^https?:\/\//,''))}</a>`).join('')}</div></div>`);
+  const est=comEstadoInfo(c);
+  const estHtml=est.st?`<span class="status ${est.st}">${est.label}</span>`:`<span class="caption">${est.label}</span>`;
+  const fields=[
+    ['Responsable', c.responsable?esc(c.responsable):''],
+    ['Fecha límite', c.fecha_limite?fmtFechaLarga(c.fecha_limite):''],
+    ['Estado', estHtml],
+    ['Categoría', c.categoria?catBadge(c.categoria):''],
+  ].filter(x=>x[1]);
+  if(!main.length&&!fields.length&&!c.afecta_todas) return '';
+  return `<div class="rec-info">
+    <div class="rec-info-main">${main.join('')||'<span class="caption">Sin descripción.</span>'}</div>
+    <div class="rec-info-side">
+      ${fields.map(([k,v])=>`<div class="rec-field"><span class="rec-k">${k}</span><span class="rec-v">${v}</span></div>`).join('')}
+      ${c.afecta_todas?`<div class="afecta-badge">${svg('notice','icon')}Afecta a todo Azure</div>`:''}
+    </div>
+  </div>`;
+}
+function recFilters(){
+  const nActivos=STATE.recCli.length+STATE.recSub.length+(STATE.recRev?1:0);
+  const gBtn=(m,label)=>`<button class="seg ${STATE.recMode===m?'active':''}" aria-pressed="${STATE.recMode===m}" onclick="setRecMode('${m}')">${label}</button>`;
+  return `<div class="toolbar">
+    <div class="search search-lg"><span>${svg('search')}</span><input id="recq" placeholder="Buscar recurso…" value="${esc(STATE.recQ)}"></div>
+    <div class="tb-filters">
+      <div class="recfilter" id="recFilter">
+        <button class="btn sm ${STATE.recFiltersOpen||nActivos?'primary':''}" id="btnRecFiltrar" onclick="toggleRecFilters()" aria-expanded="${STATE.recFiltersOpen}" title="Filtrar por cliente, suscripción y revisión">
+          ${svg('filter')}Filtrar${nActivos?` <span class="chip-n">${nActivos}</span>`:''}
+        </button>
+        <div class="fpop" id="recFilterPop" ${STATE.recFiltersOpen?'':'hidden'}>
+          <div class="fp-block">
+            <div class="fp-label">Estado de revisión</div>
+            <div class="fp-ests" id="fpRecEsts">${recEstadoHTML()}</div>
+          </div>
+          <div class="fp-sep"></div>
+          <div class="fp-tabs" id="fpRecTabs">${recFilterTabsHTML()}</div>
+          <div class="fp-search"><span>${svg('search')}</span><input id="fpRecSearch" placeholder="Buscar…" value="${esc(STATE.recFilterQ)}" autocomplete="off"></div>
+          <div class="fp-list" id="fpRecList">${recFilterListHTML()}</div>
+          <div class="fp-foot">
+            <span class="fp-count" id="fpRecCount">${STATE.recCli.length+STATE.recSub.length} seleccionado(s)</span>
+            <button class="link-ghost" onclick="clearRecCliSub()">Limpiar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tb-spacer"></div>
+    <div class="tb-actions">
+      <div class="segbar" role="group" aria-label="Agrupar por">
+        ${gBtn('recurso','Lista')}${gBtn('cliente','Por cliente')}${gBtn('suscripcion','Por suscripción')}
+      </div>
+      <button class="btn sm" title="Ver el query KQL del inventario seleccionado" ${STATE.recInv?`onclick="openInvKql(${STATE.recInv})"`:'disabled'}>${svg('search')}Ver KQL</button>
+      <button class="btn-icon-ghost" aria-label="Descargar CSV" title="Descargar CSV" onclick="exportCSV()">${svg('export')}</button>
+      <button class="btn primary sm" onclick="openInvForm(${RES.cid})">${svg('add')}Nuevo inventario</button>
+    </div>
+  </div>`;
+}
+function toggleRecFilters(){STATE.recFiltersOpen=!STATE.recFiltersOpen;render();}
+function setRecFilterTab(t){STATE.recFilterTab=t;STATE.recFilterQ='';render();}
+function clearRecCliSub(){STATE.recCli=[];STATE.recSub=[];STATE.recFilterQ='';render();}
+function updateRecFiltrarBadge(){                  // refresca botón + contadores sin cerrar el popover
+  const n=STATE.recCli.length+STATE.recSub.length, b=$('#btnRecFiltrar');
+  const nAct=n+(STATE.recRev?1:0);
+  if(b){b.classList.toggle('primary',!!(STATE.recFiltersOpen||nAct));b.innerHTML=`${svg('filter')}Filtrar${nAct?` <span class="chip-n">${nAct}</span>`:''}`;}
+  const c=$('#fpRecCount');if(c)c.textContent=`${n} seleccionado(s)`;
+  const tabs=$('#fpRecTabs');if(tabs)tabs.innerHTML=recFilterTabsHTML();
+}
 function renderRecursos(){
   RES.selected=new Set();   // la selección no sobrevive a un re-render de filtros/modo
   const c=RES.com;
-  const clientesAll=[...new Set(RES.rows.map(r=>r.cliente||'(sin cliente)'))].sort();
-  const subsAll=[...new Set(RES.rows.map(r=>r.suscripcion).filter(Boolean))];
-  // Cascada cliente → suscripción → recurso
-  const subSource=STATE.recCli?RES.rows.filter(r=>(r.cliente||'(sin cliente)')===STATE.recCli):RES.rows;
-  // Nunca se filtra por suscripciones sin cliente: solo las que tienen un cliente asignado.
+  // Descarta selecciones de suscripción que ya no tienen cliente asignado.
   const subsConCliente=new Set(RES.rows.filter(r=>(r.cliente||'').trim()).map(r=>r.suscripcion).filter(Boolean));
-  const subs=[...new Set(subSource.map(r=>r.suscripcion).filter(s=>s&&subsConCliente.has(s)))].sort();
-  if(STATE.recSub && !subsConCliente.has(STATE.recSub)) STATE.recSub='';   // nunca quedar filtrando por una sin cliente
+  STATE.recSub=STATE.recSub.filter(s=>subsConCliente.has(s));
+  const clientesAll=[...new Set(RES.rows.map(r=>r.cliente||'(sin cliente)'))];
+  const subsAll=[...new Set(RES.rows.map(r=>r.suscripcion).filter(Boolean))];
   const pctTot=Math.round(RES.rows.filter(r=>r.revisado).length/(RES.rows.length||1)*100);
   const pc=pctTot>=90?'ok':pctTot>=50?'warn':'danger';
-  const gBtn=(m,ic,label)=>`<button class="seg ${STATE.recMode===m?'active':''}" aria-pressed="${STATE.recMode===m}" aria-label="Agrupar por ${label}" onclick="setRecMode('${m}')">${svg(ic)}</button>`;
-  const props=[
-    ['Recepción', c.fecha_recepcion&&fmtFechaLarga(c.fecha_recepcion)],
-    ['Fecha límite', c.fecha_limite&&fmtFechaLarga(c.fecha_limite)],
-    ['Estado', c.estado&&esc(c.estado)],
-    ['Responsable', c.responsable&&esc(c.responsable)],
-  ].filter(x=>x[1]);
   $('#content').innerHTML=`
     <button class="back-link" onclick="backToComunicados()"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Comunicados</button>
     <div class="rechead">
-      <h1 class="page" style="margin:0">${esc(c.titulo)}</h1>
+      <h1 class="page" style="margin:0">${esc(c.titulo)}${c.archivado?` <span class="tag-arch">Archivado</span>`:''}</h1>
       <div class="statstrip"><b>${clientesAll.length}</b> clientes · <b>${subsAll.length}</b> suscripciones · <b>${RES.rows.length}</b> recursos · <span class="status status--${pc}">${pctTot}% revisado</span></div>
-    </div>
-    <div class="rec-meta">#${esc(c.id)}${c.categoria?` · ${esc(c.categoria)}`:''} · ${esc(c.archivo||'sin archivo')}${(RES.invs&&RES.invs.length)?` · <b style="color:var(--text)">${RES.invs.length}</b> lote(s) de inventario · último: <b style="color:var(--text)">${fmtInv(RES.invs[0].fecha)}</b> (${invAgo(RES.invs[0].fecha)})`:''}</div>
-    ${c.afecta_todas?`<div class="afecta-badge">${svg('notice','icon')}Afecta a todo Azure</div>`:''}
-    ${(c.resumen||'').trim()?`<p class="rec-resumen">${esc(c.resumen)}</p>`:''}
-    ${props.length?`<div class="rec-props">${props.map(([k,v])=>`<span><span class="k">${k}:</span> <span class="v">${v}</span></span>`).join('')}</div>`:''}
-    ${(c.observaciones||'').trim()?`<div class="rec-obs"><span class="k">Observaciones</span><p>${esc(c.observaciones)}</p></div>`:''}
-    ${(c.fuente||'').trim()?`<div class="rec-fuentes"><span>Fuentes</span>${c.fuente.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).map(u=>`<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}">${esc(u.replace(/^https?:\/\//,''))}</a>`).join('')}</div>`:''}
-    <div id="invBox" class="inv-hist"></div>
-    <!-- FRANJA 1 -->
-    <div class="det-toolbar">
-      <div class="search grow"><span>${svg('search')}</span><input id="recq" placeholder="Buscar recurso…" value="${esc(STATE.recQ)}"></div>
-      <label class="fbtn ${STATE.recCli?'active':''}">
-        <select id="reccli" aria-label="Filtrar por cliente"><option value="">Cliente</option>${clientesAll.map(s=>`<option ${s===STATE.recCli?'selected':''}>${esc(s)}</option>`).join('')}</select>${svg('chev','icon chev')}
-      </label>
-      <label class="fbtn ${STATE.recSub?'active':''}">
-        <select id="recsub" aria-label="Filtrar por suscripción"><option value="">Suscripción</option>${subs.map(s=>`<option ${s===STATE.recSub?'selected':''}>${esc(s)}</option>`).join('')}</select>${svg('chev','icon chev')}
-      </label>
-      <span class="vdiv"></span>
-      <div class="segbar" role="group" aria-label="Agrupar por">
-        ${gBtn('cliente','building','cliente')}${gBtn('suscripcion','subscription','suscripción')}${gBtn('recurso','resource','recurso')}
+      <div class="rechead-acts">
+        <button class="btn sm" title="Editar comunicado" onclick="openForm(${c.id})">${svg('edit')}Editar</button>
+        ${c.archivado
+          ?`<button class="btn sm" title="Restaurar comunicado" onclick="archiveCom(${c.id},0)">${svg('unarchive')}Restaurar</button>`
+          :`<button class="btn sm" title="Archivar comunicado" onclick="archiveCom(${c.id},1)">${svg('archive')}Archivar</button>`}
+        <button class="btn sm danger" title="Eliminar comunicado" onclick="delCom(${c.id})">${svg('trash')}Eliminar</button>
       </div>
-      <span class="vdiv"></span>
-      <div class="revpills" id="revPills" role="group" aria-label="Filtrar por estado de revisión"></div>
-      <button class="btn-icon-ghost" aria-label="Descargar CSV" title="Descargar CSV" onclick="exportCSV()">${svg('export')}</button>
     </div>
+    ${recInfoHTML(c)}
+    <div id="invBox" class="inv-hist"></div>
+    ${recFilters()}
     <!-- FRANJA 2 / barra de selección -->
     <div class="status-row" id="statusRow"></div>
     <div id="recbody"></div>`;
   renderInvHistory();
   $('#recq').oninput=e=>{STATE.recQ=e.target.value;RES.selected.clear();updateBody();};
-  $('#reccli').onchange=e=>{STATE.recCli=e.target.value;STATE.recSub='';STATE.recRG='';render();};
-  $('#recsub').onchange=e=>{STATE.recSub=e.target.value;STATE.recRG='';render();};
+  // Popover de filtro: buscador (rebuild solo de la lista) + checks (multi-selección, delegado)
+  const fpq=$('#fpRecSearch');
+  if(fpq)fpq.oninput=e=>{STATE.recFilterQ=e.target.value;const l=$('#fpRecList');if(l)l.innerHTML=recFilterListHTML();};
+  const fpl=$('#fpRecList');
+  if(fpl)fpl.addEventListener('change',e=>{
+    const cb=e.target.closest('input[type=checkbox]');if(!cb)return;
+    const arr=STATE.recFilterTab==='cliente'?STATE.recCli:STATE.recSub, i=arr.indexOf(cb.dataset.val);
+    if(cb.checked){if(i<0)arr.push(cb.dataset.val);}else if(i>=0)arr.splice(i,1);
+    RES.selected.clear();updateBody();updateRecFiltrarBadge();
+  });
   updateBody();
 }
-function setRecCli(v){STATE.recCli=v;STATE.recSub='';STATE.recRG='';render();}
-function setRecSub(v){STATE.recSub=v;STATE.recRG='';render();}
+function setRecCli(v){STATE.recCli=v?[v]:[];STATE.recSub=[];STATE.recRG='';render();}
+function setRecSub(v){STATE.recSub=v?[v]:[];STATE.recRG='';render();}
 function setRecRG(v){STATE.recRG=v;render();}
 function setRecQ(v){STATE.recQ=v;render();}
 // ---- Historial de inventarios (lotes: fecha + query + recursos) ----
 function renderInvHistory(){
   const el=$('#invBox');if(!el||!RES.com)return;
   const invs=RES.invs||[];
+  // Cada lote = chip para seleccionar/filtrar por fecha. El KQL se ve desde el botón "Ver KQL" de la barra de filtros.
   const chips=invs.map(inv=>{
     const active=String(STATE.recInv)===String(inv.id);
-    return `<button class="inv-chip ${active?'active':''}" title="${esc(inv.nota||'')}${inv.nota?' · ':''}${inv.n_recursos} recursos · ${invAgo(inv.fecha)}" onclick="filterInv(${inv.id})">${svg('clock')}<span>${fmtInv(inv.fecha)}</span></button>`;
+    return `<button class="inv-chip ${active?'active':''}" title="${inv.n_recursos} recursos · ${invAgo(inv.fecha)}" onclick="filterInv(${inv.id})">${svg('clock')}<span>${fmtInv(inv.fecha)}</span></button>`;
   }).join('');
-  const activeInv=invs.find(i=>String(i.id)===String(STATE.recInv));
   el.innerHTML=`
     <div class="inv-bar">
       <span class="inv-label">${svg('clock')}Inventarios</span>
       <div class="inv-chips">${chips||'<span class="caption">Sin lotes aún</span>'}</div>
-      <button class="btn primary sm" onclick="openForm(${RES.cid})">${svg('add')}Nuevo inventario</button>
-    </div>
-    ${activeInv?invDetail(activeInv):''}`;
+    </div>`;
 }
-function invDetail(inv){
-  if(RES.invEditing===inv.id){
-    setTimeout(()=>$('#invText')&&$('#invText').focus(),40);
-    return `<div class="inv-panel"><div class="kql-edit">
-        <textarea id="invText" placeholder="Pega aquí el query KQL de Resource Graph usado para este lote…">${esc(inv.kql||'')}</textarea>
-        <div class="form-foot"><button class="btn" onclick="cancelInvEdit()">Cancelar</button>
-          <button class="btn primary" onclick="saveInvKql(${inv.id})">${svg('check')}Guardar query</button></div>
-      </div></div>`;
-  }
-  const meta=`<span class="mono">${inv.n_recursos}</span> recursos · <span class="mono">${inv.n_clientes}</span> clientes · <span class="mono">${inv.n_subs}</span> susc${inv.nota?` · ${esc(inv.nota)}`:''}`;
-  const q=inv.kql
-    ?`<pre class="kql-code">${esc(inv.kql)}</pre>`
-    :`<div class="kql-empty">Sin query guardado para este lote. <button class="btn sm" onclick="editInv(${inv.id})">${svg('add')}Añadir query</button></div>`;
-  return `<div class="inv-panel">
-    <div class="inv-panel-head"><span class="caption">${meta}</span>
-      <div class="inv-acts">
-        ${inv.kql?`<button class="btn sm btn-icon" title="Copiar query" onclick="copyInv(${inv.id})">${svg('export')}</button>`:''}
-        <button class="btn sm btn-icon" title="Editar query" onclick="editInv(${inv.id})">${svg('edit')}</button>
-        <button class="btn sm btn-icon danger" title="Eliminar lote y sus recursos" onclick="delInv(${inv.id})">${svg('trash')}</button>
-      </div></div>
-    ${q}</div>`;
+// ---- Popup con el KQL del lote ----
+function openInvKql(id){RES.invKqlOpen=id;RES.invEditing=null;renderInvKqlModal();openModal();}
+function renderInvKqlModal(){   // solo lectura: ver el KQL del lote (sin editar/añadir ni eliminar)
+  const inv=(RES.invs||[]).find(i=>String(i.id)===String(RES.invKqlOpen));
+  if(!inv){closeModal();return;}
+  const c=RES.com||{};
+  const meta=`${fmtInv(inv.fecha)} · <span class="mono">${inv.n_recursos}</span> recursos · <span class="mono">${inv.n_clientes}</span> clientes · <span class="mono">${inv.n_subs}</span> susc`;
+  const body=inv.kql?`<pre class="kql-code">${esc(inv.kql)}</pre>`:`<div class="kql-empty">Sin query guardado para este lote.</div>`;
+  const foot=`${inv.kql?`<button class="btn" onclick="copyInv(${inv.id})">${svg('export')}Copiar</button>`:''}
+       <button class="btn primary" onclick="closeModal()">Cerrar</button>`;
+  $('#modal').className='modal md';
+  $('#modal').innerHTML=`
+    <div class="mhead"><div><h2>Query KQL</h2><div class="sub">#${esc(RES.cid)} · ${esc(c.titulo||'')}</div></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody"><div class="caption" style="margin-bottom:8px">${meta}</div>${body}<div class="form-foot">${foot}</div></div>`;
 }
-function filterInv(id){STATE.recInv=id;STATE.recCli='';STATE.recSub='';STATE.recRG='';render();}
-function editInv(id){RES.invEditing=id;renderInvHistory();}
-function cancelInvEdit(){RES.invEditing=null;renderInvHistory();}
+function filterInv(id){STATE.recInv=id;STATE.recCli=[];STATE.recSub=[];STATE.recRG='';render();}
+function editInv(id){RES.invEditing=id;RES.invKqlOpen=id;renderInvKqlModal();}
+function cancelInvEdit(){RES.invEditing=null;renderInvKqlModal();}
 async function saveInvKql(id){
   const kql=$('#invText').value;
   try{
     await api('/api/inventarios/'+id,{method:'PUT',body:JSON.stringify({kql})});
     const inv=RES.invs.find(x=>x.id===id);if(inv)inv.kql=kql;
-    RES.invEditing=null;renderInvHistory();toast('Query KQL guardado.');
+    RES.invEditing=null;renderInvKqlModal();toast('Query KQL guardado.');
   }catch(e){toast('Error: '+e.message);}
 }
 function copyInv(id){
@@ -939,23 +1038,14 @@ async function delInv(id){
   try{
     const r=await api('/api/inventarios/'+id,{method:'DELETE'});
     if(String(STATE.recInv)===String(id))STATE.recInv='';
-    await loadRecursos(RES.cid);await refreshCounts();render();
+    await loadRecursos(RES.cid);await refreshCounts();closeModal();
     toast(`Lote eliminado · ${r.recursos_eliminados} recursos.`);
   }catch(e){toast('Error: '+e.message);}
 }
 function updateBody(){
   const rows=recFiltered();
   $('#recbody').innerHTML=STATE.recMode==='recurso'?recTable(rows):groupView(STATE.recMode,rows);
-  renderRevPills();
   renderStatusRow();
-}
-function renderRevPills(){
-  const el=$('#revPills');if(!el)return;
-  const base=recStructural();const nBase=base.length,nRev=base.filter(r=>r.revisado).length,nPend=nBase-nRev;
-  el.innerHTML=`
-    <button class="pill ${STATE.recRev===''?'active':''}" aria-pressed="${STATE.recRev===''}" onclick="setRecRev('')">Todos <span class="chip-n">${nBase}</span></button>
-    <button class="pill ${STATE.recRev==='pend'?'active':''}" aria-pressed="${STATE.recRev==='pend'}" onclick="setRecRev('pend')">Pendientes <span class="chip-n">${nPend}</span></button>
-    <button class="pill ${STATE.recRev==='rev'?'active':''}" aria-pressed="${STATE.recRev==='rev'}" onclick="setRecRev('rev')">Revisados <span class="chip-n">${nRev}</span></button>`;
 }
 function renderStatusRow(){
   const el=$('#statusRow');if(!el)return;
@@ -1041,13 +1131,13 @@ function recTable(rows){
       <td class="${r.estado?'':'empty'}">${r.estado?esc(r.estado):'—'}</td>
       <td class="${r.gestor?'':'empty'}">${r.gestor?esc(r.gestor):'—'}</td>
       <td class="${r.created_at?'mono':'empty'}" title="${esc(r.created_at?fmtInv(r.created_at)+' · '+invAgo(r.created_at):'')}">${r.created_at?fmtInv(r.created_at):'—'}</td>
-      <td class="${r.revisado_por?'':'empty'}">${r.revisado_por?esc(r.revisado_por)+(r.revisado_at?' · '+r.revisado_at.slice(0,10):''):'—'}</td>
+      <td class="${r.revisado_por?'':'empty'}">${r.revisado_por?`<span class="stamp" title="Revisado por ${esc(r.revisado_por)}${r.revisado_at?' · '+r.revisado_at.slice(0,10):''}">${svg('check')}<span class="stamp-name">${esc(r.revisado_por)}</span>${r.revisado_at?`<span class="stamp-date">${r.revisado_at.slice(0,10)}</span>`:''}</span>`:'—'}</td>
     </tr>`).join('')||'<tr><td colspan="8"><div class="empty-state">Sin recursos con estos filtros.</div></td></tr>'}</tbody></table></div>`;
 }
 function drillIdx(i){
   const g=RES._groups[i],by=RES._groupBy;
-  if(by==='cliente'){STATE.recCli=g.key;STATE.recSub='';STATE.recMode='suscripcion';}   // cliente → sus suscripciones
-  else{STATE.recSub=g.key;STATE.recMode='recurso';}                                     // suscripción → sus recursos
+  if(by==='cliente'){STATE.recCli=[g.key];STATE.recSub=[];STATE.recMode='suscripcion';}   // cliente → sus suscripciones
+  else{STATE.recSub=[g.key];STATE.recMode='recurso';}                                     // suscripción → sus recursos
   render();
 }
 async function reviewIdx(i,val){await reviewIds(RES._groups[i].ids,val);}
@@ -1221,7 +1311,7 @@ function openAsignarCli(i){
     <div class="mbody">
       <div class="field full"><label>Cliente</label>
         <select id="asig_cli" onchange="document.getElementById('asig_new_wrap').classList.toggle('hidden',this.value!=='__new__')">
-          <option value="">— Selecciona un cliente —</option>
+          <option value="">Selecciona un cliente</option>
           ${opts}
           <option value="__new__">➕ Nuevo cliente…</option>
         </select></div>
@@ -1272,14 +1362,13 @@ function renderCliComs(){
      <td class="mono">#${esc(m.id)}</td>
      <td class="cc-title"><b class="comlink">${esc(m.titulo||'(sin título)')}</b>${m.es_global?` <span class="tag-all" title="Afecta a todas las suscripciones">Todo Azure</span>`:''}</td>
      <td>${m.categoria?catBadge(m.categoria):'<span class="caption">—</span>'}</td>
-     <td class="${m.estado?'':'empty'}">${m.estado?esc(m.estado):'—'}</td>
      <td>${due}</td>
    </tr>`;}).join('');
   $('#content').innerHTML=`
     <button class="back-link" onclick="navigate('/clientes')"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Clientes</button>
     <div class="rechead"><h1 class="page" style="margin:0">${esc(d.cliente||'Cliente')}</h1>
       <div class="statstrip"><b>${coms.length}</b> comunicado${coms.length===1?'':'s'} que le afecta${coms.length===1?'':'n'}</div></div>    ${coms.length?`<div class="tblwrap" style="max-height:none;margin-top:var(--sp-3)"><table class="comtbl cli-coms-tbl">
-      <thead><tr><th style="width:56px">N°</th><th>Comunicado</th><th style="width:210px">Categoría</th><th style="width:150px">Estado</th><th style="width:200px">Fecha límite</th></tr></thead>
+      <thead><tr><th style="width:56px">N°</th><th>Comunicado</th><th style="width:210px">Categoría</th><th style="width:200px">Fecha límite</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`
      :'<div class="empty-state">Ningún comunicado le afecta todavía.</div>'}`;
 }
@@ -1371,7 +1460,6 @@ async function saveSub(sid,cid){
 // ---------- FORM comunicado ----------
 const CATS=["Compute","Almacenamiento","Redes","Bases de datos","Datos y Analítica",
  "Contenedores","Seguridad e Identidad","Gobernanza y Monitoreo","FinOps y Reservas","Otros"];
-const ESTADOS=["Sin revisar","En proceso","Completado"];
 function fuenteRow(val=''){
   return `<div class="link-row"><input class="fuente-link" type="url" placeholder="https://…" value="${esc(val)}">
     <button type="button" class="btn-icon-ghost danger" title="Quitar link" onclick="this.closest('.link-row').remove()">${svg('close')}</button></div>`;
@@ -1379,7 +1467,7 @@ function fuenteRow(val=''){
 function addFuenteLink(val){$('#fuenteLinks')?.insertAdjacentHTML('beforeend',fuenteRow(typeof val==='string'?val:''));}
 function getFuente(){return [...document.querySelectorAll('#fuenteLinks .fuente-link')].map(i=>i.value.trim()).filter(Boolean).join('\n');}
 const F=[['titulo','Título *'],['categoria','Categoría'],['fecha_recepcion','Fecha recepción'],
- ['fecha_limite','Fecha límite'],['responsable','Responsable'],['estado','Estado'],['fuente','Fuente oficial'],
+ ['fecha_limite','Fecha límite'],['responsable','Responsable'],['fuente','Fuente oficial'],
  ['resumen','Resumen'],['observaciones','Observaciones']];
 async function openForm(id){
   let c={};if(id){c=await api('/api/comunicados/'+id);}
@@ -1387,12 +1475,12 @@ async function openForm(id){
   const nRes=cur?cur.n_recursos:0;
   const f=(k,l)=>{
     if(k==='titulo')return '';   // el título va en la cabecera (editable)
-    if(k==='categoria'||k==='estado'){
+    if(k==='categoria'){
       const val=c[k]||'';
-      const opts=k==='categoria'?CATS:ESTADOS;
+      const opts=CATS;
       const extra=val&&!opts.includes(val)?`<option value="${esc(val)}" selected>${esc(val)}</option>`:'';
       return `<div class="field"><label>${l}</label><select id="f_${k}">
-        <option value="">— Selecciona —</option>${extra}
+        <option value="">Selecciona</option>${extra}
         ${opts.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
     }
     if(k==='responsable'){   // selector de miembros (el nombre completo se guarda como responsable)
@@ -1402,7 +1490,7 @@ async function openForm(id){
         .sort((a,b)=>a.localeCompare(b,'es'));
       const extra=val&&!opts.includes(val)?`<option value="${esc(val)}" selected>${esc(val)}</option>`:'';
       return `<div class="field"><label>${l}</label><select id="f_${k}">
-        <option value="">— Selecciona —</option>${extra}
+        <option value="">Selecciona</option>${extra}
         ${opts.map(x=>`<option ${x===val?'selected':''}>${esc(x)}</option>`).join('')}</select></div>`;
     }
     if(k==='fuente'){
@@ -1419,49 +1507,112 @@ async function openForm(id){
   $('#modal').innerHTML=`<div class="mhead">
       <div style="flex:1;min-width:0">
         <input id="f_titulo" class="title-edit" placeholder="Nombre del comunicado" value="${esc(c.titulo||'')}">
-        <div class="sub">${id?`#${id} · editar comunicado`:'Nuevo comunicado'}</div>
+        ${id?`<div class="sub">#${id} · editar comunicado</div>`:''}
       </div>
       <button class="x" onclick="closeModal()">${svg('close')}</button></div>
     <div class="mbody">
-      <label class="afecta-all">
-        <input type="checkbox" id="f_afecta_todas" ${c.afecta_todas?'checked':''}>
-        <span><b>Afecta a todo Azure</b> — aplica a todas las suscripciones de todos los clientes.</span>
-      </label>
       <div class="form-2col">
-      <div class="col">
-        ${f('categoria','Categoría')}
-        <div class="field-pair">${f('fecha_recepcion','Fecha recepción')}${f('fecha_limite','Fecha límite')}</div>
-        ${f('responsable','Responsable')}
-        ${f('estado','Estado')}
-        <div class="form-section">Inventario de recursos</div>
-        <div class="field"><label>Archivo — Excel (.xlsx) o CSV</label>
-          <input type="file" id="f_file" accept=".csv,.xlsx,.xlsm">
-          <div class="upload-note">Debe incluir columnas para
-            <b style="color:var(--accent)">Suscripción</b>,
-            <b style="color:var(--accent)">Grupo de Recurso (RG)</b> y
-            <b style="color:var(--accent)">Nombre del Recurso</b> (variantes como <span class="mono">subscriptionName, resourceGroup, ResourceName…</span>).
-            <a onclick="downloadTemplate()">Descargar plantilla CSV</a>.
-            Cada carga crea un <b>lote de inventario</b> nuevo con su fecha y query.
+        <div class="col">
+          <div class="form-section">Datos del comunicado</div>
+          ${f('categoria','Categoría')}
+          ${f('responsable','Responsable')}
+          <div class="field-pair">${f('fecha_recepcion','Fecha recepción')}${f('fecha_limite','Fecha límite')}</div>
+          ${f('fuente','Fuente oficial')}
+          <div class="afecta-row" title="Aplica a todas las suscripciones de todos los clientes">
+            <span>Afecta a todo Azure</span>
+            <label class="switch"><input type="checkbox" id="f_afecta_todas" ${c.afecta_todas?'checked':''}><span class="track"></span><span class="thumb"></span></label>
           </div>
         </div>
-      </div>
-      <div class="col">
-        ${f('resumen','Resumen')}
-        ${f('observaciones','Observaciones')}
-        ${f('fuente','Fuente oficial')}
-        <div class="field"><label>Query KQL de este inventario (opcional)</label>
-          <textarea id="f_kql" class="mono" style="min-height:96px" placeholder="Resources&#10;| where type =~ 'microsoft.compute/virtualmachines'&#10;| project subscriptionId, resourceGroup, name"></textarea>
+        <div class="col">
+          <div class="form-section">Descripción</div>
+          ${f('resumen','Resumen')}
+          ${f('observaciones','Observaciones')}
         </div>
-        <div class="field"><label>Nota del lote (opcional)</label>
-          <input id="f_nota" placeholder="p. ej. Corrida mensual, alcance ampliado…"></div>
       </div>
-    </div>
-    <div id="formErr" class="formerr hidden"></div>
-    <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
-      <button class="btn primary" id="saveBtn" onclick="saveCom(${id||0})">${svg('check')}Guardar</button></div></div>`;
+      <div id="formErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" id="saveBtn" onclick="saveCom(${id||0})">${svg('check')}${id?'Guardar cambios':'Crear comunicado'}</button></div>
+    </div>`;
   openModal();setTimeout(()=>$('#f_titulo')&&$('#f_titulo').focus(),50);
 }
 function showFormErr(m){const e=$('#formErr');if(e){e.innerHTML=m;e.classList.remove('hidden');}else toast(m);}
+// ---- Nuevo inventario (lote): solo archivo (subir/arrastrar) + KQL (nuevo o existente) ----
+function openInvForm(cid){
+  const c=RES.com||{};
+  const invsKql=(RES.invs||[]).filter(i=>i.kql&&i.kql.trim());
+  const opts=invsKql.map(i=>`<option value="${i.id}">${esc(fmtInv(i.fecha))} · ${i.n_recursos} rec</option>`).join('');
+  $('#modal').className='modal md';
+  $('#modal').innerHTML=`
+    <div class="mhead"><div><h2>Nuevo inventario</h2><div class="sub">#${esc(cid)} · ${esc(c.titulo||'')}</div></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      <div class="inv-2col">
+        <div class="col">
+          <label class="field-lbl">Archivo — Excel (.xlsx) o CSV *</label>
+          <label class="dropzone" id="iv_drop">
+            <input type="file" id="iv_file" accept=".csv,.xlsx,.xlsm" hidden>
+            <div class="dz-inner">
+              ${svg('export','dz-icon')}
+              <div class="dz-title" id="iv_dzname">Arrastra el archivo aquí o haz clic para elegir</div>
+              <div class="dz-sub">.xlsx · .csv</div>
+            </div>
+          </label>
+          <div class="upload-note">Debe incluir columnas para
+            <b style="color:var(--accent)">Suscripción</b>, <b style="color:var(--accent)">Grupo de Recurso (RG)</b> y
+            <b style="color:var(--accent)">Nombre del Recurso</b>. Al guardar se crea un <b>lote nuevo</b> y se cargan las tablas.
+            <a onclick="downloadTemplate()">Descargar plantilla CSV</a>.</div>
+        </div>
+        <div class="col">
+          <label class="field-lbl">Query KQL de este lote</label>
+          <div class="seg-choice">
+            <label><input type="radio" name="iv_kqlmode" value="nuevo" checked onchange="ivKqlMode('nuevo')"> Agregar otro KQL</label>
+            <label${invsKql.length?'':' style="opacity:.5"'}><input type="radio" name="iv_kqlmode" value="existente" ${invsKql.length?'':'disabled'} onchange="ivKqlMode('existente')"> Usar existente</label>
+          </div>
+          <select id="iv_kqlsel" hidden onchange="ivKqlPick()">${opts}</select>
+          <textarea id="iv_kql" class="mono iv-kql-ta" placeholder="Resources&#10;| where type =~ 'microsoft.compute/virtualmachines'&#10;| project subscriptionId, resourceGroup, name"></textarea>
+        </div>
+      </div>
+      <div id="ivErr" class="formerr hidden"></div>
+      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
+        <button class="btn primary" id="ivSave" onclick="saveInvNew(${cid})">${svg('check')}Guardar</button></div>
+    </div>`;
+  openModal();
+  // Drag & drop: resaltar la zona y reflejar el nombre del archivo elegido.
+  const dz=$('#iv_drop'), fi=$('#iv_file');
+  const showName=()=>{const f=fi.files[0];$('#iv_dzname').textContent=f?f.name:'Arrastra el archivo aquí o haz clic para elegir';dz.classList.toggle('has-file',!!f);};
+  fi.onchange=showName;
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>{if(e.dataTransfer.files&&e.dataTransfer.files.length){fi.files=e.dataTransfer.files;showName();}});
+}
+function ivKqlMode(mode){
+  const sel=$('#iv_kqlsel'), ta=$('#iv_kql');
+  if(mode==='existente'){ sel.hidden=false; ta.readOnly=true; ivKqlPick(); }
+  else{ sel.hidden=true; ta.readOnly=false; }
+}
+function ivKqlPick(){
+  const sel=$('#iv_kqlsel'); if(!sel)return;
+  const inv=(RES.invs||[]).find(i=>String(i.id)===String(sel.value));
+  $('#iv_kql').value=(inv&&inv.kql)||'';
+}
+function ivFormErr(m){const e=$('#ivErr');if(e){e.innerHTML=m;e.classList.remove('hidden');}else toast(m);}
+async function saveInvNew(cid){
+  const file=$('#iv_file').files[0];
+  if(!file){ivFormErr('Debes seleccionar un archivo .xlsx o .csv.');return;}
+  const kql=$('#iv_kql').value||'';
+  const btn=$('#ivSave');btn.disabled=true;
+  try{
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    const buf=await file.arrayBuffer();
+    const qs=[]; if(kql.trim())qs.push('kql='+encodeURIComponent(kql));
+    const r=await fetch(`/api/comunicados/${cid}/import`+(qs.length?'?'+qs.join('&'):''),{method:'POST',headers:{'X-Ext':ext},body:buf});
+    const j=await r.json();
+    if(!r.ok){ivFormErr('El archivo fue <b>rechazado</b>:<br>'+esc(j.error));btn.disabled=false;return;}
+    await loadRecursos(cid);await refreshCounts();
+    if(j.inventario_id)STATE.recInv=j.inventario_id;   // selecciona el lote recién creado
+    closeModal();
+    toast(`Inventario agregado · ${j.importados} recurso(s) en un nuevo lote.`);
+  }catch(e){ivFormErr('Error: '+esc(e.message));btn.disabled=false;}
+}
 function downloadTemplate(){
   const csv='Suscripcion,Grupo de Recurso,Nombre del Recurso,Estado,Gestor\nMi-Suscripcion-Prod,RG-ejemplo,vm-ejemplo-01,Pendiente,Nombre Gestor\n';
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
@@ -1472,41 +1623,36 @@ async function saveCom(id){
   data.fuente=getFuente();
   data.afecta_todas=$('#f_afecta_todas')?.checked?1:0;
   if(!data.titulo){showFormErr('El título (nombre del comunicado) es obligatorio.');return;}
-  const file=$('#f_file').files[0];
-  const replace=$('#f_replace')?.checked;
-  const kql=$('#f_kql')?.value||'';
-  const nota=$('#f_nota')?.value||'';
   const btn=$('#saveBtn');btn.disabled=true;
   try{
     let cid=id;
     if(id) await api('/api/comunicados/'+id,{method:'PUT',body:JSON.stringify(data)});
     else cid=(await api('/api/comunicados',{method:'POST',body:JSON.stringify(data)})).id;
-    let imported=0;
-    if(file){
-      const ext=(file.name.split('.').pop()||'').toLowerCase();
-      const buf=await file.arrayBuffer();
-      const qs=[]; if(replace)qs.push('replace=1');
-      if(kql.trim())qs.push('kql='+encodeURIComponent(kql));
-      if(nota.trim())qs.push('nota='+encodeURIComponent(nota));
-      const r=await fetch(`/api/comunicados/${cid}/import`+(qs.length?'?'+qs.join('&'):''),{method:'POST',headers:{'X-Ext':ext},body:buf});
-      const j=await r.json();
-      if(!r.ok){
-        await loadAll();
-        showFormErr((id?'Cambios guardados, pero ':'Comunicado creado, pero ')+'el archivo fue <b>rechazado</b>:<br>'+esc(j.error));
-        btn.disabled=false;return;
-      }
-      imported=j.importados;
-    }
     await loadAll();
+    closeModal();
+    if(!id){                                   // nuevo → entra al comunicado para cargar el inventario ahí
+      navigate('/comunicados/'+cid+'/recursos');
+      toast('Comunicado creado. Agrega un inventario para cargar sus recursos.');
+      return;
+    }
     if(STATE.view==='recursos'&&RES.cid===cid)await loadRecursos(cid);
-    closeModal();render();
-    toast((id?'Comunicado actualizado':'Comunicado creado')+(file?` · ${imported} recursos en un nuevo lote`:'')+'.');
+    render();
+    toast('Comunicado actualizado.');
   }catch(e){showFormErr('Error: '+esc(e.message));btn.disabled=false;}
 }
 async function delCom(id){
-  if(!confirm('¿Eliminar este comunicado y todos sus recursos?'))return;
+  if(!confirm('¿Eliminar este comunicado y todos sus recursos? Esta acción no se puede deshacer.'))return;
   await api('/api/comunicados/'+id,{method:'DELETE'});
-  await loadAll();render();toast('Comunicado eliminado.');
+  await loadAll();
+  if(STATE.view==='recursos'&&RES.cid===id)navigate('/comunicados');else render();
+  toast('Comunicado eliminado.');
+}
+// Archivar (val=1) o restaurar (val=0). Reversible, sin confirmación.
+async function archiveCom(id,val){
+  await api('/api/comunicados/'+id,{method:'PUT',body:JSON.stringify({archivado:val?1:0})});
+  await loadAll();
+  if(STATE.view==='recursos'&&RES.cid===id&&val)navigate('/comunicados');else render();
+  toast(val?'Comunicado archivado.':'Comunicado restaurado.');
 }
 
 // ---------- modal helpers ----------
