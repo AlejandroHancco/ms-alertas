@@ -1572,8 +1572,12 @@ function openInvForm(cid){
         </div>
       </div>
       <div id="ivErr" class="formerr hidden"></div>
-      <div class="form-foot"><button class="btn" onclick="closeModal()">Cancelar</button>
-        <button class="btn primary" id="ivSave" onclick="saveInvNew(${cid})">${svg('check')}Guardar</button></div>
+      <div class="form-foot">
+        <button class="btn" onclick="closeModal()">Cancelar</button>
+        <span style="flex:1"></span>
+        <button class="btn" id="ivEmpty" onclick="saveInvEmpty(${cid})" title="Registra un lote sin recursos: queda como historial de que se revisó y no hay nada afectado">No hay recursos afectados</button>
+        <button class="btn primary" id="ivSave" onclick="saveInvNew(${cid})">${svg('check')}Guardar</button>
+      </div>
     </div>`;
   openModal();
   // Drag & drop: resaltar la zona y reflejar el nombre del archivo elegido.
@@ -1611,6 +1615,18 @@ async function saveInvNew(cid){
     if(j.inventario_id)STATE.recInv=j.inventario_id;   // selecciona el lote recién creado
     closeModal();
     toast(`Inventario agregado · ${j.importados} recurso(s) en un nuevo lote.`);
+  }catch(e){ivFormErr('Error: '+esc(e.message));btn.disabled=false;}
+}
+// Lote sin recursos: historial de "revisado, nada afectado" (no exige archivo).
+async function saveInvEmpty(cid){
+  const kql=$('#iv_kql').value||'';
+  const btn=$('#ivEmpty');btn.disabled=true;
+  try{
+    const j=await api(`/api/comunicados/${cid}/inventarios`,{method:'POST',body:JSON.stringify({kql})});
+    await loadRecursos(cid);await refreshCounts();
+    if(j.inventario_id)STATE.recInv=j.inventario_id;
+    closeModal();
+    toast('Lote registrado · sin recursos afectados.');
   }catch(e){ivFormErr('Error: '+esc(e.message));btn.disabled=false;}
 }
 function downloadTemplate(){

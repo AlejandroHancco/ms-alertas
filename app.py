@@ -110,6 +110,17 @@ def list_inventarios(cid):
     con.close()
     return [dict(r) for r in rows]
 
+def add_inventario(cid, data):
+    """Crea un lote vacío (0 recursos): registra que, a esa fecha, no hay recursos afectados."""
+    con = db()
+    if not con.execute("SELECT 1 FROM comunicados WHERE id=?", (cid,)).fetchone():
+        con.close(); raise ValueError("Comunicado no existe.")
+    ts = NOW()
+    inv = con.execute("INSERT INTO inventarios(comunicado_id,fecha,kql,created_at) VALUES(?,?,?,?)",
+                      (cid, ts, (data.get("kql") or ""), ts)).lastrowid
+    con.commit(); con.close()
+    return {"ok": True, "inventario_id": inv, "importados": 0}
+
 def update_inventario(iid, data):
     con = db(); sets=[]; vals=[]
     for f in ("kql","fecha"):
@@ -835,6 +846,8 @@ class H(BaseHTTPRequestHandler):
                 if p == "/api/recursos/bulk-review":
                     data["revisado_por"] = self._who()
                     return self._send(200, bulk_review(data))
+                m = re.match(r"/api/comunicados/(\d+)/inventarios$", p)
+                if m: return self._send(201, add_inventario(int(m.group(1)), data))
                 m = re.match(r"/api/clientes/(\d+)/suscripciones$", p)
                 if m: return self._send(201, add_suscripcion(int(m.group(1)), data))
                 m = re.match(r"/api/comunicados/(\d+)/recursos$", p)
