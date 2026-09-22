@@ -280,7 +280,7 @@ h1.page{font-size:var(--fs-h1);font-weight:700;margin:0 0 var(--sp-1);letter-spa
 .tag-all{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:var(--r-full);background:var(--accent-deep,var(--surface-2));color:var(--accent);border:1px solid var(--accent)}
 /* acciones alineadas al borde derecho (tablas de clientes) */
 .clitbl th:last-child,.comtbl th:last-child{text-align:right}
-.clitbl td:has(.acts),.subtbl td:has(.acts),.comtbl td:has(.acts){text-align:right}
+.clitbl td:has(> .acts),.subtbl td:has(> .acts),.comtbl td:has(> .acts){text-align:right}
 .clitbl .acts,.subtbl .acts,.comtbl .acts{justify-content:flex-end}
 /* casilla "afecta a todo Azure" en el formulario de comunicado */
 .afecta-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:9px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface-2)}
@@ -289,7 +289,7 @@ tr.sel{background:var(--accent-deep)!important}
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 th.sortable:hover{color:var(--accent)}
 th.sortable.sorted{color:var(--accent)}
-.sarrow{font-size:var(--fs-caption);margin-left:3px;font-family:var(--font-mono)}
+.sarrow{display:inline-block;font-size:8px;line-height:1;margin-left:5px;vertical-align:middle;color:var(--accent)}
 
 /* badge de categoría con color (tabla) */
 .cbadge{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-caption);font-weight:600;padding:3px 9px;border-radius:var(--r-full);border:1px solid var(--line);color:var(--text);white-space:nowrap}
@@ -316,6 +316,7 @@ th.sortable.sorted{color:var(--accent)}
 .status--ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-border)}
 .status--warn{background:var(--warn-bg);color:var(--warn);border-color:var(--warn-border)}
 .status--danger{background:var(--danger-bg);color:var(--danger);border-color:var(--danger-border)}
+.status--info{background:var(--surface-2);color:var(--text-muted);border-color:var(--line)}
 
 /* deadlines list */
 .dl{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--line)}
@@ -449,6 +450,11 @@ body.locked .app{display:none}
 .comtbl .ctitle b{font-weight:600}
 .comtbl .ctitle .comlink{cursor:pointer;color:var(--accent)}
 .comtbl .ctitle .comlink:hover{text-decoration:underline;color:var(--accent-hover)}
+.comtbl .ctitle .ctitle-row{display:flex;align-items:center;gap:12px}
+.comtbl .ctitle .ctitle-main{min-width:0;flex:1}
+.comtbl .ctitle .ctitle-main .caption{margin-top:3px}
+.comtbl .ctitle .ctitle-cat{margin-left:auto;flex:none}
+.comtbl .ctitle .ctitle-cat .cbadge{font-weight:500}
 .cellprog{display:flex;align-items:center;gap:var(--sp-2);min-width:130px}
 .cellprog .track{flex:1;height:6px;background:var(--surface-2);border-radius:var(--r-full);overflow:hidden}
 .cellprog .fill{height:100%;background:var(--warn);border-radius:var(--r-full)}
@@ -459,6 +465,7 @@ body.locked .app{display:none}
 .back-link .icon{width:15px;height:15px}
 .rechead{display:flex;align-items:baseline;gap:var(--sp-3);flex-wrap:wrap;margin:0 0 3px}
 .rechead-acts{margin-left:auto;display:flex;gap:6px;align-self:center}
+.com-num{font-family:var(--font-mono);color:var(--text-muted);font-weight:600;margin-right:4px}
 .tag-arch{display:inline-block;font-size:var(--fs-caption);font-weight:600;color:var(--text-muted);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 7px;vertical-align:middle;text-transform:uppercase;letter-spacing:.03em}
 .statstrip{font-size:var(--fs-table);color:var(--text-muted)}
 .statstrip b{color:var(--text);font-family:var(--font-mono);font-weight:700}

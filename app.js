@@ -79,7 +79,7 @@ const CAT_COLORS={"Compute":"#58a6ff","Almacenamiento":"#d29922","Redes":"#2dd4b
 function catColor(c){return CAT_COLORS[c]||"#8b98a9";}
 function catBadge(c){return c?`<span class="cbadge" style="--c:${catColor(c)}">${esc(c)}</span>`:'<span class="caption">—</span>';}
 
-let STATE={view:'mipanel',stats:null,comunicados:[],q:'',cat:'',est:'faltan',verVenc:false,comCli:[],comSub:[],comView:'',comFiltersOpen:false,comFilterTab:'cliente',comFilterQ:'',recSort:{col:null,dir:1},comSort:{col:'fecha_limite',dir:1},comPage:0,comPageSize:25,comScope:null,verArch:false,recFiltersOpen:false,recFilterTab:'cliente',recFilterQ:''};
+let STATE={view:'mipanel',stats:null,comunicados:[],q:'',cat:'',est:'',verVenc:false,comCli:[],comSub:[],comView:'',comFiltersOpen:false,comFilterTab:'cliente',comFilterQ:'',recSort:{col:null,dir:1},comSort:{col:'fecha_limite',dir:1},comPage:0,comPageSize:25,comScope:null,verArch:false,recFiltersOpen:false,recFilterTab:'cliente',recFilterQ:''};
 let COMGRP={keys:[]};                 // claves de los grupos visibles (índice → clave)
 const COM_COLLAPSED=new Set();        // grupos colapsados (por clave)
 
@@ -111,6 +111,7 @@ async function route(){
     setNav('clientes');
     const cli=(CLI.list||[]).find(c=>c.id===+m[1]);   // misma tabla de comunicados, acotada al cliente
     STATE.comScope={id:+m[1],nombre:cli?cli.nombre:'Cliente'};
+    if(STATE.comView==='cliente')STATE.comView='';   // no tiene sentido "Por cliente" dentro de un cliente
     STATE.comPage=0;STATE.view='comunicados';render();
   }else if(p==='/clientes'){
     STATE.view='clientes';setNav('clientes');render();
@@ -134,9 +135,12 @@ const GS={items:[],active:-1,open:false};
 function gsSources(q){
   const ql=q.toLowerCase(),out=[];
   // Comunicados (por título, resumen o categoría)
+  const qn=ql.replace(/^#/,'').trim();   // permite buscar por "#5" o "5" (número de comunicado)
   STATE.comunicados.forEach(c=>{
-    if([c.titulo,c.resumen,c.categoria].filter(Boolean).join(' ').toLowerCase().includes(ql))
-      out.push({type:'Comunicado',icon:'notice',name:c.titulo||'(sin título)',
+    const byText=[c.titulo,c.resumen,c.categoria].filter(Boolean).join(' ').toLowerCase().includes(ql);
+    const byId=/^\d+$/.test(qn)&&String(c.id).includes(qn);
+    if(byText||byId)
+      out.push({type:'Comunicado',icon:'notice',name:`#${c.id} · ${c.titulo||'(sin título)'}`,
         sub:[c.categoria,c.fecha_limite?'vence '+c.fecha_limite:''].filter(Boolean).join(' · '),
         run:()=>openRecursos(c.id)});
   });
@@ -524,13 +528,12 @@ function comStatus(c){   // estado simple derivado del avance de revisión
   if(c.n_revisados>=c.n_recursos)return 'done';            // completado
   return 'proc';                                           // en proceso
 }
-// Estado autocalculado (etiqueta + color) desde el avance de revisión — reemplaza al antiguo campo manual.
+// Estado autocalculado: Completado (último lote 100% revisado) o, si no, Vigente/Vencido según la fecha límite.
 function comEstadoInfo(c){
   const nr=c.n_recursos||0, nv=c.n_revisados||0;
-  if(!nr)     return {label:'Sin recursos', st:''};
-  if(nv>=nr)  return {label:'Completado',  st:'status--ok'};
-  if(nv===0)  return {label:'Sin revisar', st:'status--danger'};
-  return              {label:'En proceso', st:'status--warn'};
+  if(nr>0&&nv>=nr) return {label:'Completado', st:'status--ok'};
+  const vencido=c.fecha_limite&&c.fecha_limite<today;
+  return vencido?{label:'Vencido', st:'status--danger'}:{label:'Vigente', st:'status--info'};
 }
 function comMatch(c,q){
   if(STATE.verArch?!c.archivado:!!c.archivado)return false;   // archivados: ocultos salvo en "Ver archivados"
@@ -546,7 +549,7 @@ function comMatch(c,q){
   if(q){const b=[c.titulo,c.resumen,c.categoria,c.responsable,c.archivo].join(' ').toLowerCase();if(!b.includes(q))return false;}
   return true;
 }
-function anyComFilter(){return STATE.q||STATE.cat||STATE.est!=='faltan'||STATE.verVenc||STATE.comCli.length||STATE.comSub.length;}
+function anyComFilter(){return STATE.q||STATE.cat||STATE.est!==''||STATE.verVenc||STATE.comCli.length||STATE.comSub.length;}
 // ---- Popover de filtro (pestañas Cliente/Suscripción · buscador · checks · scroll) ----
 function comFilterOptions(tab){
   if(tab==='cliente') return (CLI.list||[]).map(c=>c.nombre).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'));
@@ -572,7 +575,7 @@ function comFilters(nShown){
   const nVenc=STATE.comunicados.filter(c=>!c.archivado&&c.fecha_limite&&c.fecha_limite<today).length;
   const nArch=STATE.comunicados.filter(c=>c.archivado).length;
   const catChip=STATE.cat?`<span class="fchip">${svg('filter')}<b>${esc(STATE.cat)}</b><button title="Quitar categoría" onclick="setCat('')">${svg('close')}</button></span>`:'';
-  const nActivos=STATE.comCli.length+STATE.comSub.length+(STATE.est!=='faltan'?1:0);
+  const nActivos=STATE.comCli.length+STATE.comSub.length+(STATE.est!==''?1:0);
   const vBtn=(m,l)=>`<button class="seg ${STATE.comView===m?'active':''}" aria-pressed="${STATE.comView===m}" onclick="setComView('${m}')">${l}</button>`;
   return `<div class="toolbar">
     <div class="search search-lg"><span>${svg('search')}</span><input id="fsearch" placeholder="Buscar por título, resumen, responsable…" value="${esc(STATE.q)}"></div>
@@ -607,7 +610,7 @@ function comFilters(nShown){
     <div class="tb-spacer"></div>
     <div class="tb-actions">
       <div class="segbar" role="group" aria-label="Ver comunicados agrupados">
-        ${vBtn('','Lista')}${vBtn('cliente','Por cliente')}${vBtn('suscripcion','Por suscripción')}
+        ${vBtn('','Lista')}${STATE.comScope?'':vBtn('cliente','Por cliente')}${vBtn('suscripcion','Por suscripción')}
       </div>
       <button class="btn primary sm" onclick="openForm()">${svg('add')}Nuevo comunicado</button>
     </div>
@@ -626,7 +629,7 @@ function renderComunicados(){
     <div class="tblwrap" style="max-height:none">
       <table class="comtbl">
         <thead><tr>
-          ${th('N°','n','width:56px')}${th('Comunicado','titulo')}${th('Categoría','categoria','width:210px')}
+          ${th('N°','n','width:56px')}${th('Comunicado','titulo')}${th('Última revisión','ultima_revision','width:180px')}
           ${th('Fecha límite','fecha_limite','width:190px')}${th(revLabel,'rev','width:180px')}<th style="width:120px">Acciones</th>
         </tr></thead>
         <tbody>${comTbody(list)}</tbody>
@@ -657,6 +660,12 @@ const COM_EMPTY='<tr><td colspan="6"><div class="empty-state">Sin resultados par
 function subsConClienteSet(){
   return new Set((CLI.list||[]).flatMap(c=>(c.suscripciones||[]).map(s=>s.nombre).filter(Boolean)));
 }
+// Suscripciones del cliente acotado (vista /clientes/:id/comunicados).
+function scopedSubsSet(){
+  if(!STATE.comScope)return null;
+  const c=(CLI.list||[]).find(x=>x.id===STATE.comScope.id);
+  return new Set(((c&&c.suscripciones)||[]).map(s=>s.nombre).filter(Boolean));
+}
 function comAfectaKeys(c,by,okSubs){
   if(c.afecta_todas)return ['Afecta a todo Azure'];
   let arr=(by==='cliente'?c.clientes:c.suscripciones)||[];
@@ -675,8 +684,8 @@ function comSortRows(list){
   const {col,dir}=STATE.comSort;
   const arr=[...list];
   arr.sort((a,b)=>{
-    if(col==='fecha_limite'){                       // fecha: sin fecha siempre al final
-      const av=a.fecha_limite||'', bv=b.fecha_limite||'';
+    if(col==='fecha_limite'||col==='ultima_revision'){   // fechas: sin fecha siempre al final
+      const av=a[col]||'', bv=b[col]||'';
       if(!av&&!bv) return (+a.id)-(+b.id);
       if(!av) return 1; if(!bv) return -1;
       return av<bv?-dir:av>bv?dir:0;
@@ -695,7 +704,7 @@ function setComSort(col){
   if(s.col===col)s.dir*=-1;else{s.col=col;s.dir=1;}
   STATE.comPage=0; render();
 }
-function comSortArrow(col){return STATE.comSort.col===col?`<span class="sarrow">${STATE.comSort.dir>0?'↑':'↓'}</span>`:'';}
+function comSortArrow(col){return STATE.comSort.col===col?`<span class="sarrow">${STATE.comSort.dir>0?'▲':'▼'}</span>`:'';}
 function comSortTh(label,col,style=''){
   const on=STATE.comSort.col===col;
   return `<th style="${style}" class="sortable ${on?'sorted':''}" role="button" tabindex="0" aria-sort="${on?(STATE.comSort.dir>0?'ascending':'descending'):'none'}" onclick="setComSort('${col}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setComSort('${col}')}">${label}${comSortArrow(col)}</th>`;
@@ -732,7 +741,8 @@ function comTbody(list){
     return sorted.slice(STATE.comPage*size,(STATE.comPage+1)*size).map(comRow).join('');
   }
   const by=STATE.comView,map=new Map();
-  const okSubs=by==='suscripcion'?subsConClienteSet():null;
+  // En vista acotada a un cliente, "Por suscripción" solo agrupa sus suscripciones.
+  const okSubs=by==='suscripcion'?(STATE.comScope?scopedSubsSet():subsConClienteSet()):null;
   list.forEach(c=>comAfectaKeys(c,by,okSubs).forEach(k=>{let g=map.get(k);if(!g){g=[];map.set(k,g);}g.push(c);}));
   const keys=[...map.keys()].sort((a,b)=>{
     const pa=a==='Afecta a todo Azure'?0:1,pb=b==='Afecta a todo Azure'?0:1;   // "todo Azure" primero
@@ -761,7 +771,7 @@ function renderComListOnly(){
   const pg=$('#comPager');if(pg)pg.innerHTML=comPagerHTML(list);
 }
 function syncGlobalSearch(){}   // el buscador del navbar ahora es un selector de objetos, no el filtro de comunicados
-function clearComFilters(){STATE.q='';STATE.cat='';STATE.est='faltan';STATE.verVenc=false;STATE.comCli=[];STATE.comSub=[];STATE.comFilterQ='';STATE.comPage=0;syncGlobalSearch();render();}
+function clearComFilters(){STATE.q='';STATE.cat='';STATE.est='';STATE.verVenc=false;STATE.comCli=[];STATE.comSub=[];STATE.comFilterQ='';STATE.comPage=0;syncGlobalSearch();render();}
 // Celda "Revisión" según el toggle: Lista → clientes · Por cliente → suscripciones · Por suscripción → recursos
 function comRevCell(c){
   let rev, tot, unit, empty;
@@ -778,8 +788,14 @@ function comRow(c){
   const due=c.fecha_limite?`<span class="status ${cl==='--danger'?'status--danger':cl==='--warn'?'status--warn':'status--ok'}">${svg('clock')}${fmtFechaLarga(c.fecha_limite)}</span>`:'<span class="caption">—</span>';
   return `<tr>
     <td class="mono">#${esc(c.id)}</td>
-    <td class="ctitle"><b class="comlink" onclick="openRecursos(${c.id})" title="Ver detalle del comunicado">${hl(c.titulo,q)}</b>${c.archivado?` <span class="tag-arch">Archivado</span>`:''}${c.responsable?`<div class="caption" style="text-transform:none">${esc(c.responsable)}</div>`:''}</td>
-    <td>${catBadge(c.categoria)}</td>
+    <td class="ctitle"><div class="ctitle-row">
+      <div class="ctitle-main">
+        <b class="comlink" onclick="openRecursos(${c.id})" title="Ver detalle del comunicado">${hl(c.titulo,q)}</b>${c.archivado?` <span class="tag-arch">Archivado</span>`:''}
+        ${c.responsable?`<div class="caption" style="text-transform:none">${esc(c.responsable)}</div>`:''}
+      </div>
+      ${c.categoria?`<span class="ctitle-cat">${catBadge(c.categoria)}</span>`:''}
+    </div></td>
+    <td>${c.ultima_revision?`<span class="status status--ok" style="background:none;border:none;padding:0;color:var(--text)">${svg('clock')}${fmtInv(c.ultima_revision)}</span>`:'<span class="caption">—</span>'}</td>
     <td>${due}</td>
     <td>${comRevCell(c)}</td>
     <td><div class="acts">
@@ -792,7 +808,7 @@ function comRow(c){
 }
 
 // ---------- PÁGINA RECURSOS ----------
-let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set(),invKqlOpen:null};
+let RES={cid:null,rows:[],com:null,_groups:[],_groupBy:'',selected:new Set(),selGroups:new Set(),invKqlOpen:null};
 // Nombre del usuario logueado para el sello de "revisado por" (optimista; el servidor lo re-sella).
 function meName(){const m=STATE.me||{};return `${m.nombre||''} ${m.apellido||''}`.trim()||m.correo||'usuario';}
 function openRecursos(cid){navigate('/comunicados/'+cid+'/recursos');}  // navega al endpoint
@@ -810,13 +826,22 @@ async function loadRecursos(cid){
   STATE.recInv=(RES.invs&&RES.invs.length)?RES.invs[0].id:'';
 }
 function backToComunicados(){navigate('/comunicados');}
+// 'Afecta a todo Azure': trae 1 fila por cada cliente del roster para revisarlos.
+async function syncTodoAzure(cid){
+  try{
+    const j=await api(`/api/comunicados/${cid}/sync-todo-azure`,{method:'POST',body:'{}'});
+    await loadRecursos(cid);await refreshCounts();render();
+    toast(j.creados?`${j.creados} cliente(s) agregados.`:'Ya estaban todos los clientes.');
+  }catch(e){toast('Error: '+e.message);}
+}
 function setRecMode(m){STATE.recMode=m;render();}
 function clearRecFilters(){STATE.recQ='';STATE.recCli=[];STATE.recSub=[];STATE.recRG='';STATE.recRev='';STATE.recFilterQ='';render();}
 function setLocal(r,val){r.revisado=val?1:0;r.revisado_por=val?meName():null;r.revisado_at=val?new Date().toISOString():null;}
 function recStructural(){  // filtro por cliente + suscripción + RG (base para conteos)
   return RES.rows.filter(r=>{
+    if(!(r.cliente||'').trim()||!(r.suscripcion||'').trim())return false;   // ocultar recursos sin cliente/suscripción
     if(STATE.recInv&&String(r.inventario_id)!==String(STATE.recInv))return false;
-    if(STATE.recCli.length&&!STATE.recCli.includes(r.cliente||'(sin cliente)'))return false;
+    if(STATE.recCli.length&&!STATE.recCli.includes(r.cliente))return false;
     if(STATE.recSub.length&&!STATE.recSub.includes(r.suscripcion))return false;
     if(STATE.recRG&&r.grupo_recurso!==STATE.recRG)return false;
     return true;
@@ -831,13 +856,13 @@ function recFiltered(){
     return true;
   });
 }
-function setRecRev(v){STATE.recRev=v;RES.selected.clear();updateBody();const el=$('#fpRecEsts');if(el)el.innerHTML=recEstadoHTML();updateRecFiltrarBadge();}
+function setRecRev(v){STATE.recRev=v;RES.selected.clear();RES.selGroups.clear();updateBody();const el=$('#fpRecEsts');if(el)el.innerHTML=recEstadoHTML();updateRecFiltrarBadge();}
 function setSort(col){
   const s=STATE.recSort;
   if(s.col===col)s.dir*=-1;else{s.col=col;s.dir=1;}
-  RES.selected.clear();updateBody();
+  RES.selected.clear();RES.selGroups.clear();updateBody();
 }
-function sortArrow(col){return STATE.recSort.col===col?`<span class="sarrow">${STATE.recSort.dir>0?'↑':'↓'}</span>`:'';}
+function sortArrow(col){return STATE.recSort.col===col?`<span class="sarrow">${STATE.recSort.dir>0?'▲':'▼'}</span>`:'';}
 function sortTh(label,col,cls=''){
   const on=STATE.recSort.col===col;
   return `<th class="${cls} sortable ${on?'sorted':''}" role="button" tabindex="0" aria-sort="${on?(STATE.recSort.dir>0?'ascending':'descending'):'none'}" onclick="setSort('${col}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();setSort('${col}')}">${label}${sortArrow(col)}</th>`;
@@ -849,7 +874,7 @@ function sortRows(rows){
 }
 // ---- Popover de filtro de recursos (espejo del de comunicados: Estado de revisión · pestañas Cliente/Suscripción · buscador · checks) ----
 function recFilterOptions(tab){
-  if(tab==='cliente') return [...new Set(RES.rows.map(r=>r.cliente||'(sin cliente)'))].sort((a,b)=>a.localeCompare(b,'es'));
+  if(tab==='cliente') return [...new Set(RES.rows.map(r=>r.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
   // Solo suscripciones con cliente asignado, igual que antes.
   const conCli=new Set(RES.rows.filter(r=>(r.cliente||'').trim()).map(r=>r.suscripcion).filter(Boolean));
   return [...conCli].sort((a,b)=>a.localeCompare(b,'es'));
@@ -941,21 +966,26 @@ function updateRecFiltrarBadge(){                  // refresca botón + contador
   const tabs=$('#fpRecTabs');if(tabs)tabs.innerHTML=recFilterTabsHTML();
 }
 function renderRecursos(){
-  RES.selected=new Set();   // la selección no sobrevive a un re-render de filtros/modo
+  RES.selected=new Set();RES.selGroups=new Set();   // la selección no sobrevive a un re-render de filtros/modo
   const c=RES.com;
   // Descarta selecciones de suscripción que ya no tienen cliente asignado.
   const subsConCliente=new Set(RES.rows.filter(r=>(r.cliente||'').trim()).map(r=>r.suscripcion).filter(Boolean));
   STATE.recSub=STATE.recSub.filter(s=>subsConCliente.has(s));
-  const clientesAll=[...new Set(RES.rows.map(r=>r.cliente||'(sin cliente)'))];
-  const subsAll=[...new Set(RES.rows.map(r=>r.suscripcion).filter(Boolean))];
-  const pctTot=Math.round(RES.rows.filter(r=>r.revisado).length/(RES.rows.length||1)*100);
-  const pc=pctTot>=90?'ok':pctTot>=50?'warn':'danger';
+  // Conteos y % SOLO del último lote (el seleccionado, por defecto el más reciente) y con cliente+suscripción.
+  const loteRows=RES.rows.filter(r=>!STATE.recInv||String(r.inventario_id)===String(STATE.recInv));
+  const vis=loteRows.filter(r=>(r.cliente||'').trim()&&(r.suscripcion||'').trim());
+  const clientesAll=[...new Set(vis.map(r=>r.cliente))];
+  const subsAll=[...new Set(vis.map(r=>r.suscripcion))];
+  const pctTot=Math.round(vis.filter(r=>r.revisado).length/(vis.length||1)*100);
+  const completo=vis.length>0&&pctTot>=100;
+  const pc=completo?'ok':pctTot>=50?'warn':'danger';
   $('#content').innerHTML=`
     <button class="back-link" onclick="backToComunicados()"><span style="transform:rotate(180deg);display:inline-flex">${svg('chev','icon')}</span>Comunicados</button>
     <div class="rechead">
-      <h1 class="page" style="margin:0">${esc(c.titulo)}${c.archivado?` <span class="tag-arch">Archivado</span>`:''}</h1>
-      <div class="statstrip"><b>${clientesAll.length}</b> clientes · <b>${subsAll.length}</b> suscripciones · <b>${RES.rows.length}</b> recursos · <span class="status status--${pc}">${pctTot}% revisado</span></div>
+      <h1 class="page" style="margin:0"><span class="com-num">#${esc(c.id)}</span> ${esc(c.titulo)}${c.archivado?` <span class="tag-arch">Archivado</span>`:''}</h1>
+      <div class="statstrip"><b>${clientesAll.length}</b> clientes · <b>${subsAll.length}</b> suscripciones · <b>${vis.length}</b> recursos · <span class="status status--${pc}">${completo?'Completo · 100%':pctTot+'% revisado'}</span></div>
       <div class="rechead-acts">
+        ${c.afecta_todas?`<button class="btn sm" title="Traer los clientes nuevos del roster (1 fila por cliente)" onclick="syncTodoAzure(${c.id})">${svg('add')}Sincronizar clientes</button>`:''}
         <button class="btn sm" title="Editar comunicado" onclick="openForm(${c.id})">${svg('edit')}Editar</button>
         ${c.archivado
           ?`<button class="btn sm" title="Restaurar comunicado" onclick="archiveCom(${c.id},0)">${svg('unarchive')}Restaurar</button>`
@@ -970,7 +1000,7 @@ function renderRecursos(){
     <div class="status-row" id="statusRow"></div>
     <div id="recbody"></div>`;
   renderInvHistory();
-  $('#recq').oninput=e=>{STATE.recQ=e.target.value;RES.selected.clear();updateBody();};
+  $('#recq').oninput=e=>{STATE.recQ=e.target.value;RES.selected.clear();RES.selGroups.clear();updateBody();};
   // Popover de filtro: buscador (rebuild solo de la lista) + checks (multi-selección, delegado)
   const fpq=$('#fpRecSearch');
   if(fpq)fpq.oninput=e=>{STATE.recFilterQ=e.target.value;const l=$('#fpRecList');if(l)l.innerHTML=recFilterListHTML();};
@@ -979,7 +1009,7 @@ function renderRecursos(){
     const cb=e.target.closest('input[type=checkbox]');if(!cb)return;
     const arr=STATE.recFilterTab==='cliente'?STATE.recCli:STATE.recSub, i=arr.indexOf(cb.dataset.val);
     if(cb.checked){if(i<0)arr.push(cb.dataset.val);}else if(i>=0)arr.splice(i,1);
-    RES.selected.clear();updateBody();updateRecFiltrarBadge();
+    RES.selected.clear();RES.selGroups.clear();updateBody();updateRecFiltrarBadge();
   });
   updateBody();
 }
@@ -1049,6 +1079,23 @@ function updateBody(){
 }
 function renderStatusRow(){
   const el=$('#statusRow');if(!el)return;
+  const grouped=STATE.recMode!=='recurso';
+  if(grouped){
+    const n=RES.selGroups.size, unit=STATE.recMode==='cliente'?'cliente':'suscripción';
+    if(n>0){
+      el.className='status-row selbar';
+      el.innerHTML=`<div class="sel-info"><b>${n}</b> ${unit}${n>1?'s':''} seleccionado${n>1?'s':''}</div>
+        <div class="sel-acts">
+          <button class="btn sm" onclick="markSelectedGroups(true)">${svg('check')}Marcar revisado</button>
+          <button class="btn sm danger" onclick="markSelectedGroups(false)">Quitar</button>
+          <button class="link-ghost" onclick="clearGroupSelection()">Limpiar selección</button>
+        </div>`;
+      return;
+    }
+    el.className='status-row';
+    el.innerHTML=`<span class="result-count">Mostrando ${(RES._groups||[]).length} ${unit}(s)</span>`;
+    return;
+  }
   const sel=RES.selected.size;
   if(sel>0){
     el.className='status-row selbar';
@@ -1076,7 +1123,7 @@ function selectAllVisible(on){
   recFiltered().forEach(r=>on?RES.selected.add(r.id):RES.selected.delete(r.id));
   updateBody();
 }
-function clearSelection(){RES.selected.clear();updateBody();}
+function clearSelection(){RES.selected.clear();RES.selGroups.clear();updateBody();}
 function markSelected(val){reviewIds([...RES.selected],val);}   // reviewIds → render() limpia la selección
 function groupView(by,rows){
   const noneLbl=by==='cliente'?'(sin cliente)':'(sin suscripción)';
@@ -1094,13 +1141,16 @@ function groupView(by,rows){
     groups.sort((a,b)=>a.key.localeCompare(b.key,'es',{numeric:true,sensitivity:'base'})*STATE.recSort.dir);
   RES._groups=groups;RES._groupBy=by;
   const hdr2=by==='cliente'?'Suscripciones':'Recursos';
+  const allSel=groups.length>0&&groups.every(g=>RES.selGroups.has(g.key));
   const trs=groups.map((g,i)=>{
     const pct=Math.round(g.rev/g.n*100);
     const second=by==='cliente'?`<span class="mono">${g.subs.size}</span> susc`
       :`<span class="mono">${g.n}</span> recurso(s)`;
     const cid=by==='cliente'?clienteIdPorNombre(g.key):null;   // clic en el cliente → su vista por cliente
     const keyHtml=cid?`<span class="lnk" onclick="navigate('/clientes/${cid}/comunicados')" title="Ver comunicados de ${esc(g.key)}">${esc(g.key)}</span>`:esc(g.key);
-    return `<tr>
+    const gsel=RES.selGroups.has(g.key);
+    return `<tr class="${gsel?'sel':''}">
+      <td class="chk"><input type="checkbox" ${gsel?'checked':''} aria-label="Seleccionar ${esc(g.key)}" onchange="toggleGroupSelectIdx(${i},this)"></td>
       <td class="key">${keyHtml}</td>
       <td>${second}</td>
       <td><div class="cellprog"><div class="track"><div class="fill ${pct===100?'full':''}" style="width:${pct}%"></div></div><span class="mono">${g.rev}/${g.n}</span></div></td>
@@ -1111,28 +1161,49 @@ function groupView(by,rows){
       </div></td></tr>`;
   }).join('');
   return `<div class="tblwrap"><table><thead><tr>
+    <th class="chk"><input type="checkbox" ${allSel?'checked':''} aria-label="Seleccionar todos" onchange="selectAllGroups(this.checked)"></th>
     ${sortTh(by==='cliente'?'Cliente':'Suscripción',keyCol,'key')}
     <th>${hdr2}</th>
     <th style="width:190px">Revisión</th><th style="width:240px">Acciones</th>
-  </tr></thead><tbody>${trs||'<tr><td colspan="4"><div class="empty-state">Sin resultados.</div></td></tr>'}</tbody></table></div>`;
+  </tr></thead><tbody>${trs||`<tr><td colspan="5"><div class="empty-state">${by==='cliente'?'No hay clientes afectados':'No hay suscripciones afectadas'}</div></td></tr>`}</tbody></table></div>`;
+}
+function toggleGroupSelectIdx(i,cb){
+  const g=RES._groups[i];if(!g)return;
+  if(cb.checked)RES.selGroups.add(g.key);else RES.selGroups.delete(g.key);
+  cb.closest('tr').classList.toggle('sel',cb.checked);
+  const h=document.querySelector('#recbody thead .chk input');
+  if(h)h.checked=RES._groups.length>0&&RES._groups.every(x=>RES.selGroups.has(x.key));
+  renderStatusRow();
+}
+function selectAllGroups(on){
+  RES._groups.forEach(g=>on?RES.selGroups.add(g.key):RES.selGroups.delete(g.key));
+  updateBody();
+}
+function clearGroupSelection(){RES.selGroups.clear();updateBody();}
+function markSelectedGroups(val){
+  const ids=[];RES._groups.forEach(g=>{if(RES.selGroups.has(g.key))ids.push(...g.ids);});
+  reviewIds(ids,val);   // reviewIds → render() limpia la selección
 }
 function recTable(rows){
   rows=sortRows(rows);
   const allSel=rows.length>0&&rows.every(r=>RES.selected.has(r.id));
+  // Columnas extra propias del comunicado (del Excel): reemplazan a Estado/Gestor.
+  const extraKeys=[];
+  rows.forEach(r=>{const e=r.extra||{};Object.keys(e).forEach(k=>{if(e[k]!=null&&String(e[k]).trim()!==''&&!extraKeys.includes(k))extraKeys.push(k);});});
+  const colspan=6+extraKeys.length;
   return `<div class="tblwrap"><table>
     <thead><tr><th class="chk"><input type="checkbox" ${allSel?'checked':''} aria-label="Seleccionar todos los recursos visibles" onchange="selectAllVisible(this.checked)"></th>
       ${sortTh('Cliente','cliente','key')}${sortTh('Suscripción','suscripcion','key')}${sortTh('Nombre del Recurso','nombre_recurso','key')}
-      <th>Estado</th><th>Gestor</th><th>Añadido</th><th>Revisado por</th></tr></thead>
+      ${extraKeys.map(k=>`<th>${esc(k)}</th>`).join('')}<th>Añadido</th><th>Revisado por</th></tr></thead>
     <tbody>${rows.map(r=>`<tr class="${r.revisado?'done':''} ${RES.selected.has(r.id)?'sel':''}">
       <td class="chk"><input type="checkbox" ${RES.selected.has(r.id)?'checked':''} aria-label="Seleccionar recurso ${esc(r.nombre_recurso||'')}" onchange="toggleSelect(${r.id},this)"></td>
       <td class="key ${r.cliente?'':'empty'}">${r.cliente?esc(r.cliente):'—'}</td>
       <td class="key ${r.suscripcion?'':'empty'}">${r.suscripcion?esc(r.suscripcion):'—'}</td>
       <td class="key ${r.nombre_recurso?'':'empty'}">${r.nombre_recurso?esc(r.nombre_recurso):'—'}</td>
-      <td class="${r.estado?'':'empty'}">${r.estado?esc(r.estado):'—'}</td>
-      <td class="${r.gestor?'':'empty'}">${r.gestor?esc(r.gestor):'—'}</td>
+      ${extraKeys.map(k=>{const v=r.extra&&r.extra[k];return `<td class="${v?'':'empty'}" title="${esc(v||'')}">${v?esc(v):'—'}</td>`;}).join('')}
       <td class="${r.created_at?'mono':'empty'}" title="${esc(r.created_at?fmtInv(r.created_at)+' · '+invAgo(r.created_at):'')}">${r.created_at?fmtInv(r.created_at):'—'}</td>
       <td class="${r.revisado_por?'':'empty'}">${r.revisado_por?`<span class="stamp" title="Revisado por ${esc(r.revisado_por)}${r.revisado_at?' · '+r.revisado_at.slice(0,10):''}">${svg('check')}<span class="stamp-name">${esc(r.revisado_por)}</span>${r.revisado_at?`<span class="stamp-date">${r.revisado_at.slice(0,10)}</span>`:''}</span>`:'—'}</td>
-    </tr>`).join('')||'<tr><td colspan="8"><div class="empty-state">Sin recursos con estos filtros.</div></td></tr>'}</tbody></table></div>`;
+    </tr>`).join('')||`<tr><td colspan="${colspan}"><div class="empty-state">No hay recursos afectados</div></td></tr>`}</tbody></table></div>`;
 }
 function drillIdx(i){
   const g=RES._groups[i],by=RES._groupBy;
@@ -1232,14 +1303,19 @@ async function delMiem(id){
 function gotoMiembros(term){MIEM.pendingQ=term||'';navigate('/miembros');}
 
 // ---------- PÁGINA CLIENTES (tabla con desplegables) ----------
-let CLI={list:[],expanded:new Set()};
+let CLI={list:[],expanded:new Set(),showArch:false};
 async function renderClientes(){
   try{CLI.list=await api('/api/clientes');}catch(e){$('#content').innerHTML=`<div class="empty-state">Error: ${esc(e.message)}</div>`;return;}
+  const nArch=CLI.list.filter(c=>c.archivado).length;
+  const nAct=CLI.list.length-nArch;
   const nsub=CLI.list.reduce((a,c)=>a+c.suscripciones.length,0);
   $('#content').innerHTML=`
     <div class="rechead"><h1 class="page" style="margin:0">Clientes</h1>
-      <div class="statstrip"><b>${CLI.list.length}</b> clientes · <b>${nsub}</b> suscripciones</div></div>    <div class="toolbar">
+      <div class="statstrip"><b>${nAct}</b> clientes · <b>${nsub}</b> suscripciones</div></div>    <div class="toolbar">
       <div class="search search-lg"><span>${svg('search')}</span><input id="cliq" placeholder="Buscar cliente, suscripción o id…" oninput="renderCliList()"></div>
+      <div class="tb-filters">
+        <button class="btn sm ${CLI.showArch?'primary':''}" onclick="toggleCliArch()" title="${CLI.showArch?'Volver a los activos':'Ver clientes archivados'}">${svg('archive')}Archivados${nArch?` <span class="chip-n">${nArch}</span>`:''}</button>
+      </div>
       <div class="tb-spacer"></div>
       <div class="tb-actions"><button class="btn primary sm" onclick="openCliForm()">${svg('add')}Nuevo cliente</button></div>
     </div>
@@ -1277,9 +1353,19 @@ function renderSinCli(l){
       <td><div class="acts">
         <button class="btn sm btn-icon" title="Editar suscripción" onclick="openSinCliEdit(${i})">${svg('edit')}</button>
         <button class="btn sm btn-icon" title="Asignar a un cliente" onclick="openAsignarCli(${i})">${svg('building')}</button>
+        <button class="btn sm btn-icon danger" title="Eliminar (borra sus recursos huérfanos)" onclick="delSinCli(${i})">${svg('trash')}</button>
       </div></td></tr>`).join('')}</tbody></table></div>`;
 }
 async function refreshSinCli(){renderSinCli(await api('/api/suscripciones-sin-cliente'));}
+async function delSinCli(i){
+  const s=SINCLI.rows[i];if(!s)return;
+  if(!confirm(`¿Eliminar la suscripción sin cliente "${s.suscripcion||s.suscripcion_id||'(sin nombre)'}" y sus ${s.n_recursos} recurso(s) huérfanos? Esta acción no se puede deshacer.`))return;
+  try{
+    const r=await api('/api/suscripciones-sin-cliente',{method:'DELETE',body:JSON.stringify({suscripcion:s.suscripcion||'',suscripcion_id:s.suscripcion_id||''})});
+    await refreshCli();await refreshSinCli();
+    toast(`Eliminado · ${r.recursos_eliminados} recurso(s).`);
+  }catch(e){toast('Error: '+e.message);}
+}
 function openSinCliEdit(i){
   const s=SINCLI.rows[i];if(!s)return;
   $('#modal').className='modal sm';
@@ -1338,11 +1424,20 @@ async function doAsignar(i){
     toast('Suscripción asignada'+(r.recursos_asociados?` · ${r.recursos_asociados} recurso(s) asociados`:'')+'.');
   }catch(e){showFormErr(esc(e.message));}
 }
+function toggleCliArch(){CLI.showArch=!CLI.showArch;renderClientes();}
+async function archiveCli(id,val){
+  try{
+    await api('/api/clientes/'+id,{method:'PUT',body:JSON.stringify({archivado:val?1:0})});
+    await refreshCli();
+    toast(val?'Cliente archivado.':'Cliente restaurado.');
+  }catch(e){toast('Error: '+e.message);}
+}
 function renderCliList(){
   const q=($('#cliq')?.value||'').toLowerCase();
-  const list=CLI.list.filter(c=>!q||c.nombre.toLowerCase().includes(q)||c.suscripciones.some(s=>(s.nombre||'').toLowerCase().includes(q)||(s.sub_id||'').toLowerCase().includes(q)));
+  const list=CLI.list.filter(c=>(CLI.showArch?c.archivado:!c.archivado)   // archivados ocultos salvo en "Ver archivados"
+    &&(!q||c.nombre.toLowerCase().includes(q)||c.suscripciones.some(s=>(s.nombre||'').toLowerCase().includes(q)||(s.sub_id||'').toLowerCase().includes(q))));
   const el=$('#cliList');if(!el)return;
-  el.innerHTML=list.map(c=>cliRow(c,q)).join('')||'<tr><td colspan="4"><div class="empty-state">Sin clientes que coincidan.</div></td></tr>';
+  el.innerHTML=list.map(c=>cliRow(c,q)).join('')||`<tr><td colspan="4"><div class="empty-state">${CLI.showArch?'No hay clientes archivados.':'Sin clientes que coincidan.'}</div></td></tr>`;
 }
 let CLIDET={id:null,cliente:null,comunicados:[],ok:false};
 async function loadCliComs(id){
@@ -1394,10 +1489,13 @@ function cliRow(c,q){
   const nsub=c.suscripciones.length;
   return `<tr class="clirow ${open?'open':''}" style="cursor:pointer" title="Ver comunicados que le afectan" onclick="if(!event.target.closest('.acts')&&!event.target.closest('.chev-cell'))openCliComs(${c.id})">
     <td class="chev-cell" title="Ver/ocultar suscripciones" onclick="event.stopPropagation();toggleCli(${c.id})"><span class="chev-ic">${svg('chev','icon')}</span></td>
-    <td class="ctitle"><b class="comlink">${hl(c.nombre,q)}</b><div class="caption" style="text-transform:none">${nsub} ${nsub===1?'suscripción':'suscripciones'}</div></td>
+    <td class="ctitle"><b class="comlink">${hl(c.nombre,q)}</b>${c.archivado?` <span class="tag-arch">Archivado</span>`:''}<div class="caption" style="text-transform:none">${nsub} ${nsub===1?'suscripción':'suscripciones'}</div></td>
     <td class="mono ${c.ext_id?'':'empty'}">${c.ext_id?esc(c.ext_id):'—'}</td>
     <td><div class="acts">
       <button class="btn sm btn-icon" title="Editar cliente" onclick="openCliForm(${c.id})">${svg('edit')}</button>
+      ${c.archivado
+        ?`<button class="btn sm btn-icon" title="Restaurar cliente" onclick="event.stopPropagation();archiveCli(${c.id},0)">${svg('unarchive')}</button>`
+        :`<button class="btn sm btn-icon" title="Archivar cliente" onclick="event.stopPropagation();archiveCli(${c.id},1)">${svg('archive')}</button>`}
       <button class="btn sm btn-icon danger" title="Eliminar cliente" onclick="delCli(${c.id})">${svg('trash')}</button>
     </div></td></tr>${detail}`;
 }

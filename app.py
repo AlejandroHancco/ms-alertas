@@ -51,49 +51,64 @@ def ensure_schema():
 # ------------------------- consultas -------------------------
 def list_comunicados():
     con = db()
-    rows = con.execute("""
+    # Último lote por comunicado (fecha + id). TODO lo "revisado" (recursos, clientes,
+    # suscripciones) y los filtros de cliente/suscripción se calculan SOLO sobre este lote.
+    latest = {}
+    for r in con.execute("""
+        SELECT DISTINCT ON (comunicado_id) comunicado_id, id, created_at
+        FROM inventarios ORDER BY comunicado_id, created_at DESC, id DESC
+    """).fetchall():
+        latest[r["comunicado_id"]] = (r["id"], r["created_at"])
+    latest_ids = [v[0] for v in latest.values()]
+
+    base = con.execute("""
       SELECT c.*,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=c.id) AS n_recursos,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=c.id AND r.revisado=1) AS n_revisados,
-        (SELECT MAX(r.created_at) FROM recursos r WHERE r.comunicado_id=c.id) AS ultimo_inventario,
         (SELECT COUNT(*) FROM inventarios i WHERE i.comunicado_id=c.id) AS n_inventarios
       FROM comunicados c ORDER BY (c.fecha_limite IS NULL), c.fecha_limite, c.id
     """).fetchall()
-    # Clientes y suscripciones afectadas por cada comunicado (para los filtros de la lista).
-    afect = {}
-    for r in con.execute("""
-        SELECT comunicado_id,
-          ARRAY_AGG(DISTINCT cliente)     FILTER (WHERE COALESCE(cliente,'')<>'')     AS clientes,
-          ARRAY_AGG(DISTINCT suscripcion) FILTER (WHERE COALESCE(suscripcion,'')<>'') AS suscripciones
-        FROM recursos GROUP BY comunicado_id
-    """).fetchall():
-        afect[r["comunicado_id"]] = (list(r["clientes"] or []), list(r["suscripciones"] or []))
-    # Completitud por cliente y por suscripcion (columna "Revision" segun el toggle).
-    # Un cliente/suscripcion cuenta como revisado cuando TODOS sus recursos del comunicado lo estan.
-    # Las suscripciones sin cliente no se cuentan (mismo criterio que los filtros).
-    rev_cli, rev_sub = {}, {}
-    for r in con.execute("""
-        SELECT comunicado_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE rev = tot) AS n_rev
-        FROM (SELECT comunicado_id, cliente, COUNT(*) AS tot, COALESCE(SUM(revisado),0) AS rev
-              FROM recursos WHERE COALESCE(cliente,'')<>'' GROUP BY comunicado_id, cliente) t
-        GROUP BY comunicado_id""").fetchall():
-        rev_cli[r["comunicado_id"]] = (r["n"], r["n_rev"])
-    for r in con.execute("""
-        SELECT comunicado_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE rev = tot) AS n_rev
-        FROM (SELECT comunicado_id, suscripcion, COUNT(*) AS tot, COALESCE(SUM(revisado),0) AS rev
-              FROM recursos WHERE COALESCE(suscripcion,'')<>'' AND COALESCE(cliente,'')<>''
-              GROUP BY comunicado_id, suscripcion) t
-        GROUP BY comunicado_id""").fetchall():
-        rev_sub[r["comunicado_id"]] = (r["n"], r["n_rev"])
+
+    recagg, afect, rev_cli, rev_sub = {}, {}, {}, {}
+    if latest_ids:
+        ph = ",".join("?" for _ in latest_ids)
+        for r in con.execute(f"""
+            SELECT comunicado_id, COUNT(*) AS n, COALESCE(SUM(revisado),0) AS rev
+            FROM recursos WHERE inventario_id IN ({ph}) GROUP BY comunicado_id
+        """, latest_ids).fetchall():
+            recagg[r["comunicado_id"]] = (r["n"], r["rev"])
+        for r in con.execute(f"""
+            SELECT comunicado_id,
+              ARRAY_AGG(DISTINCT cliente)     FILTER (WHERE COALESCE(cliente,'')<>'')     AS clientes,
+              ARRAY_AGG(DISTINCT suscripcion) FILTER (WHERE COALESCE(suscripcion,'')<>'') AS suscripciones
+            FROM recursos WHERE inventario_id IN ({ph}) GROUP BY comunicado_id
+        """, latest_ids).fetchall():
+            afect[r["comunicado_id"]] = (list(r["clientes"] or []), list(r["suscripciones"] or []))
+        for r in con.execute(f"""
+            SELECT comunicado_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE rev = tot) AS n_rev
+            FROM (SELECT comunicado_id, cliente, COUNT(*) AS tot, COALESCE(SUM(revisado),0) AS rev
+                  FROM recursos WHERE inventario_id IN ({ph}) AND COALESCE(cliente,'')<>''
+                  GROUP BY comunicado_id, cliente) t
+            GROUP BY comunicado_id""", latest_ids).fetchall():
+            rev_cli[r["comunicado_id"]] = (r["n"], r["n_rev"])
+        for r in con.execute(f"""
+            SELECT comunicado_id, COUNT(*) AS n, COUNT(*) FILTER (WHERE rev = tot) AS n_rev
+            FROM (SELECT comunicado_id, suscripcion, COUNT(*) AS tot, COALESCE(SUM(revisado),0) AS rev
+                  FROM recursos WHERE inventario_id IN ({ph}) AND COALESCE(suscripcion,'')<>'' AND COALESCE(cliente,'')<>''
+                  GROUP BY comunicado_id, suscripcion) t
+            GROUP BY comunicado_id""", latest_ids).fetchall():
+            rev_sub[r["comunicado_id"]] = (r["n"], r["n_rev"])
     con.close()
+
     out = []
-    for r in rows:
+    for r in base:
         d = dict(r)
-        cl, su = afect.get(d["id"], ([], []))
+        cid = d["id"]
+        d["n_recursos"], d["n_revisados"] = recagg.get(cid, (0, 0))
+        cl, su = afect.get(cid, ([], []))
         d["clientes"] = cl
         d["suscripciones"] = su
-        d["n_clientes"], d["n_clientes_rev"] = rev_cli.get(d["id"], (0, 0))
-        d["n_subs"], d["n_subs_rev"] = rev_sub.get(d["id"], (0, 0))
+        d["n_clientes"], d["n_clientes_rev"] = rev_cli.get(cid, (0, 0))
+        d["n_subs"], d["n_subs_rev"] = rev_sub.get(cid, (0, 0))
+        d["ultima_revision"] = latest.get(cid, (None, None))[1]   # created_at del último lote
         out.append(d)
     return out
 
@@ -247,6 +262,7 @@ def add_comunicado(data):
     cid = cur.lastrowid
     con.execute("UPDATE comunicados SET n=? WHERE id=?", (str(cid), cid))  # numero = id
     con.commit(); con.close()
+    if data.get("afecta_todas"): sync_todo_azure(cid)   # 1 placeholder por cliente
     return {"id": cid}
 
 def update_comunicado(cid, data):
@@ -257,7 +273,43 @@ def update_comunicado(cid, data):
         con.execute(f"UPDATE comunicados SET {','.join(f+'=?' for f in cols)} WHERE id=?",
                     [data[f] for f in cols]+[cid])
         con.commit()
-    con.close(); return {"ok": True}
+    con.close()
+    if "afecta_todas" in data: sync_todo_azure(cid)   # ajusta placeholders al cambiar el flag
+    return {"ok": True}
+
+def sync_todo_azure(cid):
+    """Comunicado 'Afecta a todo Azure': asegura 1 recurso-placeholder por cliente
+    (suscripción = 'Afecta a todo Azure') para poder marcarlo revisado y llevar la cuenta.
+    Si el flag está apagado, elimina esos placeholders."""
+    con = db()
+    row = con.execute("SELECT afecta_todas FROM comunicados WHERE id=?", (cid,)).fetchone()
+    if not row:
+        con.close(); return {"ok": False, "creados": 0}
+    if not row["afecta_todas"]:
+        con.execute("DELETE FROM recursos WHERE comunicado_id=? AND hoja='todo-azure'", (cid,))
+        con.commit(); con.close(); return {"ok": True, "creados": 0}
+    clientes = [r["nombre"] for r in con.execute(
+        "SELECT nombre FROM clientes WHERE COALESCE(nombre,'')<>'' ORDER BY LOWER(nombre)").fetchall()]
+    existing = {r["cliente"] for r in con.execute(
+        "SELECT DISTINCT cliente FROM recursos WHERE comunicado_id=? AND hoja='todo-azure'", (cid,)).fetchall()}
+    faltan = [c for c in clientes if c not in existing]
+    creados = 0
+    if faltan:
+        ts = NOW()
+        invrow = con.execute(
+            "SELECT inventario_id FROM recursos WHERE comunicado_id=? AND hoja='todo-azure' AND inventario_id IS NOT NULL LIMIT 1",
+            (cid,)).fetchone()
+        inv = invrow["inventario_id"] if invrow else con.execute(
+            "INSERT INTO inventarios(comunicado_id,fecha,kql,created_at) VALUES(?,?,?,?)",
+            (cid, ts, "", ts)).lastrowid
+        for cn in faltan:
+            con.execute("""INSERT INTO recursos
+              (comunicado_id,hoja,cliente,suscripcion,suscripcion_id,grupo_recurso,nombre_recurso,gestor,estado,extra,revisado,created_at,inventario_id)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              (cid, 'todo-azure', cn, 'Afecta a todo Azure', '', '', '(todo Azure)', '', '', '{}', 0, ts, inv))
+            creados += 1
+        con.commit()
+    con.close(); return {"ok": True, "creados": creados}
 
 def delete_comunicado(cid):
     con = db(); con.execute("DELETE FROM comunicados WHERE id=?", (cid,)); con.commit(); con.close()
@@ -525,6 +577,17 @@ def rename_suscripcion_sin_cliente(data):
     con.commit(); con.close()
     return {"ok": True, "recursos_actualizados": n, "recursos_asignados": n if cli else 0}
 
+def delete_suscripcion_sin_cliente(data):
+    """Elimina los recursos huérfanos (sin cliente) de una suscripción sin cliente."""
+    old_n = data.get("suscripcion") or ""
+    old_i = data.get("suscripcion_id") or ""
+    con = db()
+    con.execute("""DELETE FROM recursos
+        WHERE COALESCE(cliente,'')='' AND COALESCE(suscripcion,'')=? AND COALESCE(suscripcion_id,'')=?""",
+        (old_n, old_i))
+    n = con.total_changes; con.commit(); con.close()
+    return {"ok": True, "recursos_eliminados": n}
+
 def add_cliente(data):
     nombre = (data.get("nombre") or "").strip()
     ext_id = (data.get("ext_id") or "").strip()
@@ -538,17 +601,20 @@ def add_cliente(data):
     return {"id": cid}
 
 def update_cliente(cid, data):
-    nombre = (data.get("nombre") or "").strip()
-    ext_id = (data.get("ext_id") or "").strip()
-    if not nombre: raise ValueError("nombre requerido")
     con = db()
     old = con.execute("SELECT nombre FROM clientes WHERE id=?", (cid,)).fetchone()
     if not old: con.close(); raise ValueError("cliente no existe")
-    try:
-        con.execute("UPDATE clientes SET nombre=?, ext_id=? WHERE id=?", (nombre, ext_id, cid))
-    except IntegrityError:
-        con.close(); raise ValueError("Ya existe un cliente con ese nombre")
-    con.execute("UPDATE recursos SET cliente=? WHERE cliente=?", (nombre, old["nombre"]))
+    if "nombre" in data or "ext_id" in data:
+        nombre = (data.get("nombre") or "").strip()
+        ext_id = (data.get("ext_id") or "").strip()
+        if not nombre: con.close(); raise ValueError("nombre requerido")
+        try:
+            con.execute("UPDATE clientes SET nombre=?, ext_id=? WHERE id=?", (nombre, ext_id, cid))
+        except IntegrityError:
+            con.close(); raise ValueError("Ya existe un cliente con ese nombre")
+        con.execute("UPDATE recursos SET cliente=? WHERE cliente=?", (nombre, old["nombre"]))
+    if "archivado" in data:
+        con.execute("UPDATE clientes SET archivado=? WHERE id=?", (1 if data["archivado"] else 0, cid))
     con.commit(); con.close(); reload_cli_map()
     return {"ok": True}
 
@@ -848,6 +914,8 @@ class H(BaseHTTPRequestHandler):
                     return self._send(200, bulk_review(data))
                 m = re.match(r"/api/comunicados/(\d+)/inventarios$", p)
                 if m: return self._send(201, add_inventario(int(m.group(1)), data))
+                m = re.match(r"/api/comunicados/(\d+)/sync-todo-azure$", p)
+                if m: return self._send(200, sync_todo_azure(int(m.group(1))))
                 m = re.match(r"/api/clientes/(\d+)/suscripciones$", p)
                 if m: return self._send(201, add_suscripcion(int(m.group(1)), data))
                 m = re.match(r"/api/comunicados/(\d+)/recursos$", p)
@@ -902,6 +970,10 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self):
         p = urlparse(self.path).path
         if not self._me(): return self._send(401, {"error": "no autenticado"})
+        if p == "/api/suscripciones-sin-cliente":
+            try:
+                with LOCK: return self._send(200, delete_suscripcion_sin_cliente(self._json_body()))
+            except Exception as e: return self._send(400, {"error": str(e)})
         for rx, fn in ((r"/api/comunicados/(\d+)$", delete_comunicado),
                        (r"/api/clientes/(\d+)$", delete_cliente),
                        (r"/api/suscripciones/(\d+)$", delete_suscripcion),
