@@ -52,7 +52,7 @@ const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>
 const api=async(url,opt)=>{const r=await fetch(url,opt&&{headers:{'Content-Type':'application/json'},...opt});if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json();};
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
 function hl(s,q){s=esc(s);if(!q)return s;try{return s.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>');}catch(e){return s;}}
-const today=new Date().toISOString().slice(0,10);
+const today=(()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);})();  // fecha local (no UTC)
 function fmtInv(ts){                       // "2026-09-03T10:31:00" -> "3 sep 2026"
   if(!ts)return'';
   const d=new Date(ts.replace(' ','T'));
@@ -490,7 +490,7 @@ function renderInicioDash(s,mode){
     return `<div class="dl clickable" onclick="openRecursos(${p.id})"><span class="t" title="${esc(p.titulo)}">${esc(p.titulo)}</span>${tag}
       <span class="caption" style="white-space:nowrap">${info}</span></div>`;};
   const prox=(s.proximos||[]).map(p=>rowLink(p,false)).join('')||'<div class="empty-state">Sin próximos vencimientos.</div>';
-  const venc=(s.vencidos_list||[]).map(p=>rowLink(p,true)).join('')||'<div class="empty-state" style="padding:var(--sp-4)">Nada vencido. 👌</div>';
+  const venc=(s.vencidos_list||[]).map(p=>rowLink(p,true)).join('')||'<div class="empty-state" style="padding:var(--sp-4)">Nada vencido.</div>';
   const comLabel=team?'Comunicados':'Mis comunicados';
   const estTitle=team?'Comunicados por estado':'Mis comunicados por estado';
   if(!team && totCom===0){
@@ -1344,7 +1344,7 @@ async function toggleSinCliente(){
 function renderSinCli(l){
   const box=$('#sinCliBox');if(!box)return;
   SINCLI.rows=l;
-  if(!l.length){box.innerHTML='<div class="empty-state" style="padding:var(--sp-4)">No hay suscripciones sin cliente. 👌</div>';return;}
+  if(!l.length){box.innerHTML='<div class="empty-state" style="padding:var(--sp-4)">No hay suscripciones sin cliente.</div>';return;}
   box.innerHTML=`<div class="tblwrap" style="max-height:none;margin-top:8px"><table class="clitbl">
     <thead><tr><th>Suscripción</th><th style="width:300px">ID</th><th style="width:88px">Acciones</th></tr></thead>
     <tbody>${l.map((s,i)=>`<tr>

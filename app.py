@@ -39,8 +39,11 @@ def cliente_para(name, sid):
 def db():
     return pgdb.connect()
 
-TODAY = lambda: datetime.date.today().isoformat()
-NOW = lambda: datetime.datetime.now().isoformat(timespec="seconds")
+# Hora de Perú (GMT-5, sin horario de verano): el servidor en Azure corre en UTC,
+# así las fechas de creación/última revisión no se adelantan un día.
+LIMA_TZ = datetime.timezone(datetime.timedelta(hours=-5))
+TODAY = lambda: datetime.datetime.now(LIMA_TZ).date().isoformat()
+NOW = lambda: datetime.datetime.now(LIMA_TZ).replace(tzinfo=None).isoformat(timespec="seconds")
 
 def ensure_schema():
     """Crea el esquema en PostgreSQL si no existe (idempotente)."""
@@ -765,7 +768,7 @@ def patch_recurso(rid, data):
         if f in data:
             sets.append(f+"=?"); vals.append(1 if (f=="revisado" and data[f]) else (0 if f=="revisado" else data[f]))
     if "revisado" in data:
-        sets.append("revisado_at=?"); vals.append(datetime.datetime.now().isoformat(timespec="seconds") if data["revisado"] else None)
+        sets.append("revisado_at=?"); vals.append(NOW() if data["revisado"] else None)
         sets.append("revisado_por=?"); vals.append(data.get("revisado_por","usuario") if data["revisado"] else None)
     if sets:
         con.execute(f"UPDATE recursos SET {','.join(sets)} WHERE id=?", vals+[rid]); con.commit()
@@ -775,7 +778,7 @@ def bulk_review(data):
     """Marca revisado por lista de ids, o por comunicado + suscripcion."""
     con = db(); val = 1 if data.get("revisado", True) else 0
     who = data.get("revisado_por","usuario")
-    at = datetime.datetime.now().isoformat(timespec="seconds") if val else None
+    at = NOW() if val else None
     if data.get("ids"):
         ph = ",".join("?" for _ in data["ids"])
         con.execute(f"UPDATE recursos SET revisado=?,revisado_at=?,revisado_por=? WHERE id IN ({ph})",
