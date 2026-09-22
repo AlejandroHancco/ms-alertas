@@ -133,6 +133,7 @@ h1.page{font-size:var(--fs-h1);font-weight:700;margin:0 0 var(--sp-1);letter-spa
 .card__title{font-size:var(--fs-h2);font-weight:600;display:flex;align-items:center;gap:var(--sp-2)}
 .card__title .icon{color:var(--text-muted)}
 .donut-wrap{display:flex;align-items:center;gap:var(--sp-5);flex-wrap:wrap;justify-content:center}
+.dl-more{padding:8px 0 0;font-size:var(--fs-caption);color:var(--text-muted)}
 .legend{display:flex;flex-direction:column;gap:var(--sp-2)}
 .legend div{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-table);color:var(--text-muted)}
 .dot{width:10px;height:10px;border-radius:var(--r-full);flex:none}

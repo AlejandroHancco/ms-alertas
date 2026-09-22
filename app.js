@@ -490,7 +490,8 @@ function renderInicioDash(s,mode){
     return `<div class="dl clickable" onclick="openRecursos(${p.id})"><span class="t" title="${esc(p.titulo)}">${esc(p.titulo)}</span>${tag}
       <span class="caption" style="white-space:nowrap">${info}</span></div>`;};
   const prox=(s.proximos||[]).map(p=>rowLink(p,false)).join('')||'<div class="empty-state">Sin próximos vencimientos.</div>';
-  const venc=(s.vencidos_list||[]).map(p=>rowLink(p,true)).join('')||'<div class="empty-state" style="padding:var(--sp-4)">Nada vencido.</div>';
+  const vencAll=s.vencidos_list||[];
+  const venc=(vencAll.slice(0,5).map(p=>rowLink(p,true)).join('')+(vencAll.length>5?`<div class="dl-more">+${vencAll.length-5} más</div>`:''))||'<div class="empty-state" style="padding:var(--sp-4)">Nada vencido.</div>';
   const comLabel=team?'Comunicados':'Mis comunicados';
   const estTitle=team?'Comunicados por estado':'Mis comunicados por estado';
   if(!team && totCom===0){
