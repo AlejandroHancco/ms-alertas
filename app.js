@@ -1229,10 +1229,20 @@ async function refreshCounts(){
   [STATE.stats,STATE.comunicados]=await Promise.all([api('/api/stats'),api('/api/comunicados')]);
 }
 function exportCSV(){
-  const cols=['Cliente','Suscripción','Suscripción ID','Grupo de Recurso','Nombre del Recurso','Estado','Gestor','Añadido (inventario)','Revisado','Revisado por','Notas'];
+  const rows=sortRows(recFiltered());
+  // columnas tal cual el archivo subido (guardadas en r.extra, en orden de aparición)
+  const cols=[];
+  rows.forEach(r=>{for(const k in (r.extra||{})){if(!cols.includes(k))cols.push(k);}});
+  // respaldo para lotes antiguos (importados antes de guardar la fila completa): solo obligatorias
+  const useExtra=cols.length>0;
+  const fb=[['Suscripción','suscripcion'],['Grupo de Recurso','grupo_recurso'],['Nombre del Recurso','nombre_recurso']];
+  const header=useExtra?cols:fb.map(([h])=>h);
   const q=v=>`"${(v??'').toString().replace(/"/g,'""')}"`;
-  const lines=[cols.map(q).join(',')];
-  sortRows(recFiltered()).forEach(r=>lines.push([r.cliente,r.suscripcion,r.suscripcion_id,r.grupo_recurso,r.nombre_recurso,r.estado,r.gestor,(r.created_at||'').slice(0,10),r.revisado?'Sí':'No',r.revisado_por,r.notas].map(q).join(',')));
+  const lines=[header.map(q).join(',')];
+  rows.forEach(r=>{
+    const row=useExtra?cols.map(k=>(r.extra||{})[k]):fb.map(([,f])=>r[f]);
+    lines.push(row.map(q).join(','));
+  });
   const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`recursos_${RES.cid}.csv`;a.click();
 }

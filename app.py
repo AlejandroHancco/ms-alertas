@@ -730,7 +730,6 @@ def import_recursos(cid, ext, raw, replace=False, kql=""):
         raise ValueError("Faltan columnas obligatorias: " + ", ".join(missing) +
                          ". Columnas detectadas en el archivo: " + ", ".join(h for h in header if h))
 
-    used = {i for i in (i_subn, i_subid, i_rg, i_res, i_gestor, i_estado) if i is not None}
     if replace:   # empezar de cero: borra recursos y lotes anteriores
         con.execute("DELETE FROM recursos WHERE comunicado_id=?", (cid,))
         con.execute("DELETE FROM inventarios WHERE comunicado_id=?", (cid,))
@@ -743,8 +742,9 @@ def import_recursos(cid, ext, raw, replace=False, kql=""):
         res = cell(i_res)
         if not (res or cell(i_rg) or cell(i_subn)):
             continue
-        extra = {header[i]: r[i] for i in range(min(len(header), len(r)))
-                 if i not in used and i < len(r) and r[i].strip()}
+        # fila original completa, tal cual el archivo subido (todas las columnas, en orden)
+        extra = {header[i]: (r[i] if i < len(r) else "") for i in range(len(header))
+                 if header[i].strip()}
         estado = cell(i_estado)
         revisado = 1 if any(w in estado.lower() for w in ie.DONE_WORDS) else 0
         cli = cliente_para(cell(i_subn), cell(i_subid))   # cliente derivado de la suscripcion
