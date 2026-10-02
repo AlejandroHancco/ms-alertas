@@ -89,6 +89,7 @@ async function loadAll(){
     api('/api/me').catch(()=>({miembro:null}))]);
   STATE.stats=st;STATE.comunicados=co;CLI.list=cl;MIEM.list=mi;   // caché para el buscador global
   STATE.me=(me&&me.miembro)||null;                               // miembro logueado (o null)
+  STATE.nPap=(await api('/api/papelera').catch(()=>[])).length;   // contador del botón Papelera
 }
 
 // ---------- enrutado (URLs reales / History API) ----------
@@ -340,7 +341,15 @@ async function doLogout(){
 }
 // ---------- MI PERFIL (datos del usuario + tema oscuro) ----------
 function inicialDe(me){ return ((me&&(me.nombre||me.correo)||'?').trim()[0]||'?').toUpperCase(); }
+// RBAC: admin (todo + miembros/roles) · editor (lee y edita) · lector (solo lee).
+// El backend es quien hace cumplir los permisos; aquí solo se ocultan los controles
+// que el rol no puede usar (vía CSS con body[data-rol]).
+const ROL_LBL={admin:'Admin',editor:'Editor',lector:'Lector'};
+const myRol=()=>(STATE.me&&STATE.me.rol)||'lector';
+const isAdmin=()=>myRol()==='admin';
+function rolBadge(r){return `<span class="rol-badge rol-${esc(r||'editor')}">${ROL_LBL[r]||esc(r||'')}</span>`;}
 function updateNavProfile(){
+  document.body.dataset.rol=myRol();
   const el=$('#navProfile'); if(!el) return;
   el.textContent=inicialDe(STATE.me);
 }
@@ -350,7 +359,8 @@ function userMenuHTML(){
   const nombre=`${me.nombre||''} ${me.apellido||''}`.trim()||me.correo||'Usuario';
   return `<div class="nav-menu-head">
       <div class="nav-menu-name">${esc(nombre)}</div>
-      <div class="nav-menu-mail">${esc(me.correo||'')}</div></div>
+      <div class="nav-menu-mail">${esc(me.correo||'')}</div>
+      <div style="margin-top:6px">${rolBadge(me.rol)}</div></div>
     <button class="nav-menu-item" onclick="closeUserMenu();navigate('/perfil')">${svg('user')}Mi perfil</button>
     <div class="nav-menu-item as-row">
       <span class="nmi-lbl">${svg('moon')}Tema oscuro</span>
@@ -605,6 +615,9 @@ function comFilters(nShown){
       </button>
       <button class="btn sm ${STATE.verArch?'primary':''}" id="btnArch" onclick="toggleArch()" title="${STATE.verArch?'Volver a los activos':'Ver comunicados archivados'}">
         ${svg('archive')}Archivados${nArch?` <span class="chip-n">${nArch}</span>`:''}
+      </button>
+      <button class="btn sm" id="btnPap" onclick="openPapelera()" title="Comunicados eliminados (se pueden recuperar)">
+        ${svg('trash')}Papelera${STATE.nPap?` <span class="chip-n">${STATE.nPap}</span>`:''}
       </button>
       ${catChip}
     </div>
@@ -972,8 +985,9 @@ function renderRecursos(){
   // Descarta selecciones de suscripción que ya no tienen cliente asignado.
   const subsConCliente=new Set(RES.rows.filter(r=>(r.cliente||'').trim()).map(r=>r.suscripcion).filter(Boolean));
   STATE.recSub=STATE.recSub.filter(s=>subsConCliente.has(s));
-  // Conteos y % SOLO del último lote (el seleccionado, por defecto el más reciente) y con cliente+suscripción.
-  const loteRows=RES.rows.filter(r=>!STATE.recInv||String(r.inventario_id)===String(STATE.recInv));
+  // Conteos, % y estado SIEMPRE del último lote (los anteriores son solo historial), con cliente+suscripción.
+  const lastInv=(RES.invs&&RES.invs.length)?RES.invs[0].id:null;
+  const loteRows=lastInv?RES.rows.filter(r=>String(r.inventario_id)===String(lastInv)):[];
   const vis=loteRows.filter(r=>(r.cliente||'').trim()&&(r.suscripcion||'').trim());
   const clientesAll=[...new Set(vis.map(r=>r.cliente))];
   const subsAll=[...new Set(vis.map(r=>r.suscripcion))];
@@ -1256,10 +1270,11 @@ async function renderMiembros(){
       <div class="statstrip"><b>${MIEM.list.length}</b> miembros</div></div>    <div class="toolbar">
       <div class="search search-lg"><span>${svg('search')}</span><input id="miemq" placeholder="Buscar por correo, nombre o apellido…" oninput="renderMiemList()"></div>
       <div class="tb-spacer"></div>
-      <div class="tb-actions"><button class="btn primary sm" onclick="openMiemForm()">${svg('add')}Nuevo miembro</button></div>
+      <div class="tb-actions">${isAdmin()?`<button class="btn primary sm" onclick="openMiemForm()">${svg('add')}Nuevo miembro</button>`:''}</div>
     </div>
+    ${isAdmin()?'':'<div class="caption" style="text-transform:none;margin:0 0 8px">Solo un admin puede crear miembros o cambiar sus roles.</div>'}
     <div class="tblwrap" style="max-height:none"><table class="clitbl">
-      <thead><tr><th>Correo</th><th style="width:200px">Nombre</th><th style="width:200px">Apellido</th><th style="width:88px">Acciones</th></tr></thead>
+      <thead><tr><th>Correo</th><th style="width:200px">Nombre</th><th style="width:200px">Apellido</th><th style="width:110px">Rol</th>${isAdmin()?'<th style="width:88px">Acciones</th>':''}</tr></thead>
       <tbody id="miemList"></tbody></table></div>`;
   if(MIEM.pendingQ){const i=$('#miemq');if(i)i.value=MIEM.pendingQ;MIEM.pendingQ='';}
   renderMiemList();
@@ -1272,10 +1287,11 @@ function renderMiemList(){
     <td><div class="member-id"><span class="tbl-avatar">${esc(inicialDe(m))}</span><span>${hl(m.correo,q)}</span></div></td>
     <td class="${m.nombre?'':'empty'}">${m.nombre?hl(m.nombre,q):'—'}</td>
     <td class="${m.apellido?'':'empty'}">${m.apellido?hl(m.apellido,q):'—'}</td>
-    <td><div class="acts">
+    <td>${rolBadge(m.rol)}</td>
+    ${isAdmin()?`<td><div class="acts">
       <button class="btn sm btn-icon" title="Editar miembro" onclick="openMiemForm(${m.id})">${svg('edit')}</button>
       <button class="btn sm btn-icon danger" title="Eliminar miembro" onclick="delMiem(${m.id})">${svg('trash')}</button>
-    </div></td></tr>`).join('')||'<tr><td colspan="4"><div class="empty-state">Sin miembros que coincidan.</div></td></tr>';
+    </div></td>`:''}</tr>`).join('')||`<tr><td colspan="${isAdmin()?5:4}"><div class="empty-state">Sin miembros que coincidan.</div></td></tr>`;
 }
 function openMiemForm(id){
   const m=id?MIEM.list.find(x=>x.id===id):null;
@@ -1288,6 +1304,8 @@ function openMiemForm(id){
         <div class="field"><label>Apellido</label><input id="m_apellido" value="${m?esc(m.apellido||''):''}" ${id?'readonly':''}></div>
       </div>
       ${id?'<div class="caption" style="text-transform:none;margin:-4px 0 4px">El nombre y apellido los edita cada miembro desde su “Mi perfil”.</div>':''}
+      <div class="field full"><label>Rol</label>
+        <select id="m_rol">${['admin','editor','lector'].map(r=>`<option value="${r}" ${(m?m.rol:'lector')===r?'selected':''}>${ROL_LBL[r]}${r==='admin'?' — todo, gestiona miembros y roles':r==='editor'?' — ve y edita':' — solo ve'}</option>`).join('')}</select></div>
       <div class="field full"><label>Contraseña ${id?'<span class="caption" style="text-transform:none">(dejar en blanco para mantener la actual)</span>':''}</label>
         <input id="m_pwd" type="password" autocomplete="new-password" placeholder="${id?'••••••••':'Contraseña de acceso'}"></div>
       <div id="formErr" class="formerr hidden"></div>
@@ -1297,13 +1315,15 @@ function openMiemForm(id){
 }
 async function saveMiem(id){
   const correo=$('#m_correo').value.trim(),nombre=$('#m_nombre').value.trim(),
-        apellido=$('#m_apellido').value.trim(),password=$('#m_pwd').value;
+        apellido=$('#m_apellido').value.trim(),password=$('#m_pwd').value,rol=$('#m_rol').value;
   if(!correo){showFormErr('El correo es obligatorio.');return;}
   if(!id&&!password){showFormErr('La contraseña es obligatoria para un miembro nuevo.');return;}
   try{
-    if(id)await api('/api/miembros/'+id,{method:'PUT',body:JSON.stringify({correo,nombre,apellido,password})});
-    else await api('/api/miembros',{method:'POST',body:JSON.stringify({correo,nombre,apellido,password})});
-    MIEM.list=await api('/api/miembros');closeModal();toast(id?'Miembro actualizado.':'Miembro creado.');
+    if(id)await api('/api/miembros/'+id,{method:'PUT',body:JSON.stringify({correo,nombre,apellido,password,rol})});
+    else await api('/api/miembros',{method:'POST',body:JSON.stringify({correo,nombre,apellido,password,rol})});
+    MIEM.list=await api('/api/miembros');
+    if(STATE.me&&id===STATE.me.id){STATE.me=(await api('/api/me')).miembro;updateNavProfile();}   // cambió su propio rol
+    closeModal();toast(id?'Miembro actualizado.':'Miembro creado.');
   }catch(e){showFormErr(esc(e.message));}
 }
 async function delMiem(id){
@@ -1776,11 +1796,55 @@ async function saveCom(id){
   }catch(e){showFormErr('Error: '+esc(e.message));btn.disabled=false;}
 }
 async function delCom(id){
-  if(!confirm('¿Eliminar este comunicado y todos sus recursos? Esta acción no se puede deshacer.'))return;
-  await api('/api/comunicados/'+id,{method:'DELETE'});
+  if(!confirm('¿Eliminar este comunicado? Se moverá a la papelera junto con sus recursos y podrás recuperarlo.'))return;
+  try{await api('/api/comunicados/'+id,{method:'DELETE'});}catch(e){toast('Error: '+e.message);return;}
   await loadAll();
   if(STATE.view==='recursos'&&RES.cid===id)navigate('/comunicados');else render();
-  toast('Comunicado eliminado.');
+  toast('Comunicado movido a la papelera.');
+}
+// ---------- Papelera: comunicados eliminados (restaurar · eliminar definitivo solo admin) ----------
+let PAP=[];
+async function openPapelera(){
+  try{PAP=await api('/api/papelera');}catch(e){toast('Error: '+e.message);return;}
+  STATE.nPap=PAP.length;renderPapelera();openModal();
+}
+function renderPapelera(){
+  const rows=PAP.map(p=>`<tr>
+    <td><span class="com-num">#${esc(p.comunicado_id)}</span> <b>${esc(p.titulo||'')}</b>
+      <div class="caption" style="text-transform:none">${p.categoria?esc(p.categoria)+' · ':''}<span class="mono">${p.n_recursos}</span> recursos · <span class="mono">${p.n_inventarios}</span> lotes</div></td>
+    <td><div>${esc(fmtInv(p.eliminado_at))}</div><div class="caption" style="text-transform:none">${esc(p.eliminado_por||'')}</div></td>
+    <td><div class="acts">
+      <button class="btn sm" onclick="restorePap(${p.id})">${svg('unarchive')}Restaurar</button>
+      ${isAdmin()?`<button class="btn sm btn-icon danger" title="Eliminar definitivamente" onclick="purgePap(${p.id})">${svg('trash')}</button>`:''}
+    </div></td></tr>`).join('');
+  $('#modal').className='modal md';
+  $('#modal').innerHTML=`
+    <div class="mhead"><div><h2>Papelera</h2><div class="sub">Comunicados eliminados · se pueden restaurar con sus recursos e inventarios</div></div><button class="x" onclick="closeModal()">${svg('close')}</button></div>
+    <div class="mbody">
+      ${PAP.length?`<div class="tblwrap" style="max-height:60vh"><table class="clitbl">
+        <thead><tr><th>Comunicado</th><th style="width:170px">Eliminado</th><th style="width:150px"></th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`:'<div class="empty-state">La papelera está vacía.</div>'}
+      <div class="form-foot">
+        ${isAdmin()&&PAP.length?`<button class="btn danger" onclick="purgePap()">${svg('trash')}Vaciar papelera</button>`:''}
+        <button class="btn primary" onclick="closeModal()">Cerrar</button></div>
+    </div>`;
+}
+async function restorePap(pid){
+  try{
+    const r=await api(`/api/papelera/${pid}/restaurar`,{method:'POST',body:'{}'});
+    PAP=PAP.filter(p=>p.id!==pid);STATE.nPap=PAP.length;
+    await loadAll();renderPapelera();toast(`Comunicado #${r.comunicado_id} restaurado.`);
+  }catch(e){toast('Error: '+e.message);}
+}
+async function purgePap(pid){
+  const msg=pid?'¿Eliminar definitivamente este comunicado? No se podrá recuperar.'
+               :'¿Vaciar la papelera? Todos los comunicados se eliminarán definitivamente.';
+  if(!confirm(msg))return;
+  try{
+    await api(pid?`/api/papelera/${pid}`:'/api/papelera',{method:'DELETE'});
+    PAP=pid?PAP.filter(p=>p.id!==pid):[];STATE.nPap=PAP.length;
+    renderPapelera();toast(pid?'Eliminado definitivamente.':'Papelera vaciada.');
+  }catch(e){toast('Error: '+e.message);}
 }
 // Archivar (val=1) o restaurar (val=0). Reversible, sin confirmación.
 async function archiveCom(id,val){

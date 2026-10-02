@@ -49,6 +49,15 @@ def ensure_schema():
     """Crea el esquema en PostgreSQL si no existe (idempotente)."""
     con = db()
     pgdb.create_schema(con)
+    # RBAC: siempre debe existir al menos un admin. Si no hay ninguno se promueve a
+    # ADMIN_CORREO (variable de entorno) o, si no existe, al miembro más antiguo.
+    if not con.execute("SELECT 1 FROM miembros WHERE rol='admin'").fetchone():
+        correo = (os.environ.get("ADMIN_CORREO") or "alejandro.hancco@gestionysistemas.com").strip().lower()
+        row = (con.execute("SELECT id FROM miembros WHERE correo=?", (correo,)).fetchone()
+               or con.execute("SELECT id FROM miembros ORDER BY id LIMIT 1").fetchone())
+        if row:
+            con.execute("UPDATE miembros SET rol='admin' WHERE id=?", (row["id"],))
+            con.commit()
     con.close()
 
 # ------------------------- consultas -------------------------
@@ -123,7 +132,7 @@ def list_inventarios(cid):
         (SELECT COUNT(*) FROM recursos r WHERE r.inventario_id=i.id AND r.revisado=1) AS n_revisados,
         (SELECT COUNT(DISTINCT r.cliente) FROM recursos r WHERE r.inventario_id=i.id AND COALESCE(r.cliente,'')<>'') AS n_clientes,
         (SELECT COUNT(DISTINCT r.suscripcion) FROM recursos r WHERE r.inventario_id=i.id AND COALESCE(r.suscripcion,'')<>'') AS n_subs
-      FROM inventarios i WHERE i.comunicado_id=? ORDER BY i.fecha DESC, i.id DESC
+      FROM inventarios i WHERE i.comunicado_id=? ORDER BY i.created_at DESC, i.id DESC
     """, (cid,)).fetchall()
     con.close()
     return [dict(r) for r in rows]
@@ -171,32 +180,32 @@ def get_recursos(cid):
 def stats():
     con = db(); c = con.cursor()
     tot_com = c.execute("SELECT COUNT(*) FROM comunicados").fetchone()[0]
-    tot_rec = c.execute("SELECT COUNT(*) FROM recursos").fetchone()[0]
-    rev = c.execute("SELECT COUNT(*) FROM recursos WHERE revisado=1").fetchone()[0]
-    com_con = c.execute("SELECT COUNT(*) FROM comunicados WHERE id IN (SELECT DISTINCT comunicado_id FROM recursos)").fetchone()[0]
+    tot_rec = c.execute("SELECT COUNT(*) FROM recursos_ult").fetchone()[0]
+    rev = c.execute("SELECT COUNT(*) FROM recursos_ult WHERE revisado=1").fetchone()[0]
+    com_con = c.execute("SELECT COUNT(*) FROM comunicados WHERE id IN (SELECT DISTINCT comunicado_id FROM recursos_ult)").fetchone()[0]
     por_cat = [dict(r) for r in c.execute("""
       SELECT COALESCE(NULLIF(c.categoria,''),'Sin categoría') AS categoria,
              COUNT(DISTINCT c.id) AS comunicados,
              COUNT(r.id) AS recursos,
              COALESCE(SUM(r.revisado),0) AS revisados
-      FROM comunicados c LEFT JOIN recursos r ON r.comunicado_id=c.id
+      FROM comunicados c LEFT JOIN recursos_ult r ON r.comunicado_id=c.id
       GROUP BY 1 ORDER BY recursos DESC""").fetchall()]
     por_sub = [dict(r) for r in c.execute("""
       SELECT COALESCE(NULLIF(suscripcion,''),'(sin suscripción)') AS suscripcion,
              COUNT(*) AS recursos, SUM(revisado) AS revisados
-      FROM recursos GROUP BY 1 ORDER BY recursos DESC LIMIT 12""").fetchall()]
+      FROM recursos_ult GROUP BY 1 ORDER BY recursos DESC LIMIT 12""").fetchall()]
     hoy = TODAY()
     vencidos = c.execute("SELECT COUNT(*) FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ?", (hoy,)).fetchone()[0]
     prox = [dict(r) for r in c.execute("""
       SELECT id,n,titulo,categoria,fecha_limite,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
       FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite >= ?
       ORDER BY fecha_limite LIMIT 8""", (hoy,)).fetchall()]
     vencidos_list = [dict(r) for r in c.execute("""
       SELECT id,n,titulo,categoria,fecha_limite,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
       FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ?
       ORDER BY fecha_limite LIMIT 10""", (hoy,)).fetchall()]
     # --- Clientes: recursos afectados y avance de revisión por cliente ---
@@ -204,12 +213,12 @@ def stats():
       SELECT cliente,
              COUNT(*) AS recursos,
              COALESCE(SUM(revisado),0) AS revisados
-      FROM recursos WHERE COALESCE(cliente,'')<>''
+      FROM recursos_ult WHERE COALESCE(cliente,'')<>''
       GROUP BY cliente ORDER BY recursos DESC""").fetchall()]
     clientes_afectados = len(cli_rows)
     # clientes tocados por comunicados vencidos (para marcar riesgo alto)
     venc_cli = {r[0] for r in c.execute("""
-      SELECT DISTINCT cliente FROM recursos
+      SELECT DISTINCT cliente FROM recursos_ult
       WHERE COALESCE(cliente,'')<>'' AND comunicado_id IN
         (SELECT id FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ?)
       """, (hoy,)).fetchall()}
@@ -224,7 +233,7 @@ def stats():
     com_estado = {"sin_recursos": 0, "sin_revisar": 0, "en_progreso": 0, "completado": 0}
     for r in c.execute("""
       SELECT COUNT(r.id) AS n_rec, COALESCE(SUM(r.revisado),0) AS n_rev
-      FROM comunicados co LEFT JOIN recursos r ON r.comunicado_id=co.id
+      FROM comunicados co LEFT JOIN recursos_ult r ON r.comunicado_id=co.id
       GROUP BY co.id""").fetchall():
         nr, nv = r["n_rec"], r["n_rev"]
         if nr == 0:        com_estado["sin_recursos"] += 1
@@ -314,9 +323,76 @@ def sync_todo_azure(cid):
         con.commit()
     con.close(); return {"ok": True, "creados": creados}
 
-def delete_comunicado(cid):
-    con = db(); con.execute("DELETE FROM comunicados WHERE id=?", (cid,)); con.commit(); con.close()
+def delete_comunicado(cid, who="usuario"):
+    """Mueve el comunicado a la papelera: guarda una copia completa (comunicado +
+    inventarios + recursos, con sus ids) y lo borra de las tablas vivas, así el resto
+    de la plataforma (stats, clientes, búsquedas) no necesita filtrar eliminados."""
+    con = db()
+    com = con.execute("SELECT * FROM comunicados WHERE id=?", (cid,)).fetchone()
+    if not com:
+        con.close(); raise ValueError("comunicado no existe")
+    datos = {
+        "comunicado": dict(com),
+        "inventarios": [dict(r) for r in con.execute(
+            "SELECT * FROM inventarios WHERE comunicado_id=? ORDER BY id", (cid,)).fetchall()],
+        "recursos": [dict(r) for r in con.execute(
+            "SELECT * FROM recursos WHERE comunicado_id=? ORDER BY id", (cid,)).fetchall()],
+    }
+    con.execute("INSERT INTO papelera(comunicado_id,titulo,datos,eliminado_por,eliminado_at) VALUES(?,?,?,?,?)",
+                (cid, com["titulo"], json.dumps(datos, ensure_ascii=False), who, NOW()))
+    con.execute("DELETE FROM comunicados WHERE id=?", (cid,))
+    con.commit(); con.close()
     return {"ok": True}
+
+# ---- papelera de comunicados ----
+def list_papelera():
+    con = db()
+    rows = con.execute("SELECT * FROM papelera ORDER BY eliminado_at DESC, id DESC").fetchall()
+    con.close()
+    out = []
+    for r in rows:
+        d = json.loads(r["datos"] or "{}")
+        c = d.get("comunicado") or {}
+        out.append({"id": r["id"], "comunicado_id": r["comunicado_id"], "titulo": r["titulo"],
+                    "categoria": c.get("categoria"), "responsable": c.get("responsable"),
+                    "n_inventarios": len(d.get("inventarios") or []),
+                    "n_recursos": len(d.get("recursos") or []),
+                    "eliminado_por": r["eliminado_por"], "eliminado_at": r["eliminado_at"]})
+    return out
+
+def _insert_row(con, table, row):
+    cols = list(row.keys())
+    con.execute(f"INSERT INTO {table}({','.join(cols)}) VALUES({','.join('?' for _ in cols)})",
+                [row[c] for c in cols])
+
+def restore_papelera(pid):
+    """Reinserta el comunicado con sus mismos ids (y sus inventarios/recursos)."""
+    con = db()
+    r = con.execute("SELECT datos FROM papelera WHERE id=?", (pid,)).fetchone()
+    if not r:
+        con.close(); raise ValueError("no está en la papelera")
+    d = json.loads(r["datos"] or "{}")
+    com = d["comunicado"]
+    if con.execute("SELECT 1 FROM comunicados WHERE id=?", (com["id"],)).fetchone():
+        con.close(); raise ValueError(f"Ya existe un comunicado #{com['id']}")
+    try:
+        _insert_row(con, "comunicados", com)
+        for inv in d.get("inventarios") or []: _insert_row(con, "inventarios", inv)
+        for rec in d.get("recursos") or []: _insert_row(con, "recursos", rec)
+        con.execute("DELETE FROM papelera WHERE id=?", (pid,))
+        con.commit()
+    except Exception:
+        con.rollback(); con.close(); raise
+    con.close()
+    return {"ok": True, "comunicado_id": com["id"]}
+
+def purge_papelera(pid=None):
+    """Elimina definitivamente un elemento de la papelera (o todos si pid es None)."""
+    con = db()
+    if pid is None: con.execute("DELETE FROM papelera")
+    else: con.execute("DELETE FROM papelera WHERE id=?", (pid,))
+    n = con.total_changes; con.commit(); con.close()
+    return {"ok": True, "eliminados": n}
 
 # ---- clientes (base editable) ----
 def list_clientes():
@@ -328,7 +404,7 @@ def list_clientes():
         subs_by_cli.setdefault(r["cliente_id"], []).append(
             {"id": r["id"], "nombre": r["nombre"], "sub_id": r["sub_id"]})
     counts = {r["cliente"]: r["n"] for r in con.execute(
-        "SELECT cliente, COUNT(*) AS n FROM recursos GROUP BY cliente")}
+        "SELECT cliente, COUNT(*) AS n FROM recursos_ult GROUP BY cliente")}
     con.close()
     for c in cls:
         c["suscripciones"] = subs_by_cli.get(c["id"], [])
@@ -357,7 +433,7 @@ def comunicados_de_cliente(cid):
     where_rec = " OR ".join(conds)
 
     direct_ids = {r[0] for r in con.execute(
-        f"SELECT DISTINCT comunicado_id FROM recursos r WHERE {where_rec}", params).fetchall()}
+        f"SELECT DISTINCT comunicado_id FROM recursos_ult r WHERE {where_rec}", params).fetchall()}
     global_ids = {r[0] for r in con.execute(
         "SELECT id FROM comunicados WHERE afecta_todas=1").fetchall()}
 
@@ -395,7 +471,18 @@ def suscripciones_sin_cliente():
     con.close()
     return [dict(r) for r in rows]
 
-# ---- miembros (base para el login futuro) ----
+# ---- miembros ----
+# RBAC: admin (todo + gestiona miembros y roles), editor (lee y edita), lector (solo lee).
+ROLES = ("admin", "editor", "lector")
+
+def _rol_valido(rol):
+    rol = (rol or "").strip().lower()
+    if rol not in ROLES: raise ValueError("rol inválido (admin, editor o lector)")
+    return rol
+
+def _hay_otro_admin(con, mid):
+    return con.execute("SELECT 1 FROM miembros WHERE rol='admin' AND id<>?", (mid,)).fetchone() is not None
+
 def hash_pwd(p):
     """PBKDF2-SHA256 con sal por usuario. Formato guardado: 'salt$hash' (hex)."""
     salt = secrets.token_hex(8)
@@ -411,7 +498,7 @@ def verify_pwd(p, stored):
 def list_miembros():
     con = db()
     rows = [dict(r) for r in con.execute(   # nunca se expone el hash de la contraseña
-        "SELECT id,correo,nombre,apellido,created_at FROM miembros "
+        "SELECT id,correo,nombre,apellido,COALESCE(rol,'editor') AS rol,created_at FROM miembros "
         "ORDER BY LOWER(apellido), LOWER(nombre), LOWER(correo)").fetchall()]
     con.close(); return rows
 
@@ -420,13 +507,14 @@ def add_miembro(data):
     nombre = (data.get("nombre") or "").strip()
     apellido = (data.get("apellido") or "").strip()
     pwd = data.get("password") or ""
+    rol = _rol_valido(data.get("rol") or "lector")
     if not correo: raise ValueError("correo requerido")
     if "@" not in correo: raise ValueError("correo inválido")
     if not pwd: raise ValueError("contraseña requerida")
     con = db()
     try:
-        cur = con.execute("INSERT INTO miembros(correo,nombre,apellido,pwd) VALUES(?,?,?,?)",
-                          (correo, nombre, apellido, hash_pwd(pwd)))
+        cur = con.execute("INSERT INTO miembros(correo,nombre,apellido,pwd,rol) VALUES(?,?,?,?,?)",
+                          (correo, nombre, apellido, hash_pwd(pwd), rol))
     except IntegrityError:
         con.close(); raise ValueError("Ya existe un miembro con ese correo")
     con.commit(); mid = cur.lastrowid; con.close(); return {"id": mid}
@@ -439,36 +527,49 @@ def update_miembro(mid, data):
     if not correo: raise ValueError("correo requerido")
     if "@" not in correo: raise ValueError("correo inválido")
     con = db()
-    if not con.execute("SELECT 1 FROM miembros WHERE id=?", (mid,)).fetchone():
+    row = con.execute("SELECT COALESCE(rol,'editor') AS rol FROM miembros WHERE id=?", (mid,)).fetchone()
+    if not row:
         con.close(); raise ValueError("miembro no existe")
+    rol = _rol_valido(data["rol"]) if data.get("rol") else row["rol"]
+    if row["rol"] == "admin" and rol != "admin" and not _hay_otro_admin(con, mid):
+        con.close(); raise ValueError("Debe quedar al menos un admin")
     try:
-        con.execute("UPDATE miembros SET correo=?,nombre=?,apellido=? WHERE id=?",
-                    (correo, nombre, apellido, mid))
+        con.execute("UPDATE miembros SET correo=?,nombre=?,apellido=?,rol=? WHERE id=?",
+                    (correo, nombre, apellido, rol, mid))
         if pwd:   # solo se cambia si se escribe una nueva
             con.execute("UPDATE miembros SET pwd=? WHERE id=?", (hash_pwd(pwd), mid))
     except IntegrityError:
         con.close(); raise ValueError("Ya existe un miembro con ese correo")
-    con.commit(); con.close(); return {"ok": True}
+    con.commit(); con.close()
+    for s in SESSIONS.values():   # el cambio de rol/correo aplica de inmediato a sus sesiones abiertas
+        if s["id"] == mid: s["correo"] = correo; s["rol"] = rol
+    return {"ok": True}
 
 def delete_miembro(mid):
-    con = db(); con.execute("DELETE FROM miembros WHERE id=?", (mid,)); con.commit(); con.close()
+    con = db()
+    row = con.execute("SELECT rol FROM miembros WHERE id=?", (mid,)).fetchone()
+    if row and row["rol"] == "admin" and not _hay_otro_admin(con, mid):
+        con.close(); raise ValueError("No se puede eliminar al único admin")
+    con.execute("DELETE FROM miembros WHERE id=?", (mid,)); con.commit(); con.close()
+    for sid in [k for k, s in SESSIONS.items() if s["id"] == mid]:   # cierra sus sesiones
+        SESSIONS.pop(sid, None)
     return {"ok": True}
 
 # ---- sesiones / login (cada miembro ve SUS comunicados como 'responsable') ----
-SESSIONS = {}   # sid -> {id, correo, nombre, apellido}
+SESSIONS = {}   # sid -> {id, correo, nombre, apellido, rol}
 
 def login(data):
     correo = (data.get("correo") or "").strip().lower()
     pwd = data.get("password") or ""
     con = db()
-    row = con.execute("SELECT id,correo,nombre,apellido,pwd FROM miembros WHERE correo=?",
+    row = con.execute("SELECT id,correo,nombre,apellido,pwd,COALESCE(rol,'editor') AS rol FROM miembros WHERE correo=?",
                       (correo,)).fetchone()
     con.close()
     if not row or not verify_pwd(pwd, row["pwd"]):
         raise ValueError("Correo o contraseña incorrectos")
     sid = secrets.token_urlsafe(24)
     m = {"id": row["id"], "correo": row["correo"],
-         "nombre": row["nombre"], "apellido": row["apellido"]}
+         "nombre": row["nombre"], "apellido": row["apellido"], "rol": row["rol"]}
     SESSIONS[sid] = m
     return sid, m
 
@@ -515,8 +616,8 @@ def mi_stats(responsable):
     if not com_ids:
         con.close(); return empty
     ph = ",".join("?" for _ in com_ids)
-    tot_rec = c.execute(f"SELECT COUNT(*) FROM recursos WHERE comunicado_id IN ({ph})", com_ids).fetchone()[0]
-    rev = c.execute(f"SELECT COUNT(*) FROM recursos WHERE revisado=1 AND comunicado_id IN ({ph})", com_ids).fetchone()[0]
+    tot_rec = c.execute(f"SELECT COUNT(*) FROM recursos_ult WHERE comunicado_id IN ({ph})", com_ids).fetchone()[0]
+    rev = c.execute(f"SELECT COUNT(*) FROM recursos_ult WHERE revisado=1 AND comunicado_id IN ({ph})", com_ids).fetchone()[0]
     vencidos = c.execute(
         f"SELECT COUNT(*) FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ? AND id IN ({ph})",
         [hoy]+com_ids).fetchone()[0]
@@ -524,24 +625,24 @@ def mi_stats(responsable):
       SELECT COALESCE(NULLIF(co.categoria,''),'Sin categoría') AS categoria,
              COUNT(DISTINCT co.id) AS comunicados,
              COUNT(r.id) AS recursos, COALESCE(SUM(r.revisado),0) AS revisados
-      FROM comunicados co LEFT JOIN recursos r ON r.comunicado_id=co.id
+      FROM comunicados co LEFT JOIN recursos_ult r ON r.comunicado_id=co.id
       WHERE co.id IN ({ph}) GROUP BY 1 ORDER BY recursos DESC""", com_ids).fetchall()]
     prox = [dict(r) for r in c.execute(f"""
       SELECT id,n,titulo,categoria,fecha_limite,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
       FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite >= ? AND id IN ({ph})
       ORDER BY fecha_limite LIMIT 8""", [hoy]+com_ids).fetchall()]
     vencidos_list = [dict(r) for r in c.execute(f"""
       SELECT id,n,titulo,categoria,fecha_limite,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
-        (SELECT COUNT(*) FROM recursos r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id) AS n_recursos,
+        (SELECT COUNT(*) FROM recursos_ult r WHERE r.comunicado_id=comunicados.id AND r.revisado=1) AS n_revisados
       FROM comunicados WHERE fecha_limite IS NOT NULL AND fecha_limite < ? AND id IN ({ph})
       ORDER BY fecha_limite LIMIT 10""", [hoy]+com_ids).fetchall()]
     com_estado = {"sin_recursos": 0, "sin_revisar": 0, "en_progreso": 0, "completado": 0}
     for r in c.execute(f"""
       SELECT COUNT(r.id) AS n_rec, COALESCE(SUM(r.revisado),0) AS n_rev
-      FROM comunicados co LEFT JOIN recursos r ON r.comunicado_id=co.id
+      FROM comunicados co LEFT JOIN recursos_ult r ON r.comunicado_id=co.id
       WHERE co.id IN ({ph}) GROUP BY co.id""", com_ids).fetchall():
         nr, nv = r["n_rec"], r["n_rev"]
         if nr == 0:    com_estado["sin_recursos"] += 1
@@ -550,7 +651,7 @@ def mi_stats(responsable):
         else:          com_estado["en_progreso"]  += 1
     cli_rows = [dict(r) for r in c.execute(f"""
       SELECT cliente, COUNT(*) AS recursos, COALESCE(SUM(revisado),0) AS revisados
-      FROM recursos WHERE COALESCE(cliente,'')<>'' AND comunicado_id IN ({ph})
+      FROM recursos_ult WHERE COALESCE(cliente,'')<>'' AND comunicado_id IN ({ph})
       GROUP BY cliente ORDER BY recursos DESC""", com_ids).fetchall()]
     con.close()
     return {"responsable": responsable, "hoy": hoy,
@@ -812,6 +913,16 @@ class H(BaseHTTPRequestHandler):
         return None
     def _me(self):
         return member_from_sid(self._sid())
+    def _forbid(self, p, method=""):
+        """RBAC: mensaje de error si el rol del usuario no puede hacer esta escritura (None = permitido)."""
+        if p in ("/api/login", "/api/logout", "/api/cambiar-password", "/api/mi-perfil"):
+            return None   # acciones sobre la propia sesión/perfil: cualquier rol
+        rol = (self._me() or {}).get("rol")
+        if p == "/api/miembros" or p.startswith("/api/miembros/"):
+            return None if rol == "admin" else "Solo un admin puede gestionar miembros y roles"
+        if method == "DELETE" and p.startswith("/api/papelera"):
+            return None if rol == "admin" else "Solo un admin puede eliminar definitivamente"
+        return None if rol in ("admin", "editor") else "Sin permiso: tu rol es de solo lectura"
     def _who(self):
         # Nombre a estampar en "revisado por": el usuario autenticado (no lo que mande el cliente).
         me = self._me() or {}
@@ -857,6 +968,7 @@ class H(BaseHTTPRequestHandler):
                 if m: return self._send(200, comunicados_de_cliente(int(m.group(1))))
                 if p == "/api/miembros": return self._send(200, list_miembros())
                 if p == "/api/suscripciones-sin-cliente": return self._send(200, suscripciones_sin_cliente())
+                if p == "/api/papelera": return self._send(200, list_papelera())
                 if p == "/api/comunicados": return self._send(200, list_comunicados())
                 m = re.match(r"/api/comunicados/(\d+)/recursos$", p)
                 if m: return self._send(200, get_recursos(int(m.group(1))))
@@ -878,6 +990,8 @@ class H(BaseHTTPRequestHandler):
         # Login obligatorio: solo /api/login es público; el resto exige sesión.
         if p.startswith("/api/") and p != "/api/login" and not self._me():
             return self._send(401, {"error": "no autenticado"})
+        err = self._forbid(p)
+        if err: return self._send(403, {"error": err})
         m_imp = re.match(r"/api/comunicados/(\d+)/import$", p)
         if m_imp:
             try:
@@ -917,6 +1031,8 @@ class H(BaseHTTPRequestHandler):
                     return self._send(200, bulk_review(data))
                 m = re.match(r"/api/comunicados/(\d+)/inventarios$", p)
                 if m: return self._send(201, add_inventario(int(m.group(1)), data))
+                m = re.match(r"/api/papelera/(\d+)/restaurar$", p)
+                if m: return self._send(200, restore_papelera(int(m.group(1))))
                 m = re.match(r"/api/comunicados/(\d+)/sync-todo-azure$", p)
                 if m: return self._send(200, sync_todo_azure(int(m.group(1))))
                 m = re.match(r"/api/clientes/(\d+)/suscripciones$", p)
@@ -930,6 +1046,8 @@ class H(BaseHTTPRequestHandler):
     def do_PUT(self):
         p = urlparse(self.path).path
         if not self._me(): return self._send(401, {"error": "no autenticado"})
+        err = self._forbid(p)
+        if err: return self._send(403, {"error": err})
         if p == "/api/suscripciones-sin-cliente":
             try:
                 with LOCK: return self._send(200, rename_suscripcion_sin_cliente(self._json_body()))
@@ -963,6 +1081,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         if not self._me(): return self._send(401, {"error": "no autenticado"})
+        err = self._forbid(urlparse(self.path).path)
+        if err: return self._send(403, {"error": err})
         m = re.match(r"/api/recursos/(\d+)$", urlparse(self.path).path)
         if not m: return self._send(404, {"error":"ruta"})
         try:
@@ -973,11 +1093,20 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self):
         p = urlparse(self.path).path
         if not self._me(): return self._send(401, {"error": "no autenticado"})
+        err = self._forbid(p, "DELETE")
+        if err: return self._send(403, {"error": err})
         if p == "/api/suscripciones-sin-cliente":
             try:
                 with LOCK: return self._send(200, delete_suscripcion_sin_cliente(self._json_body()))
             except Exception as e: return self._send(400, {"error": str(e)})
-        for rx, fn in ((r"/api/comunicados/(\d+)$", delete_comunicado),
+        if p == "/api/papelera":
+            with LOCK: return self._send(200, purge_papelera())
+        m = re.match(r"/api/comunicados/(\d+)$", p)
+        if m:
+            try:
+                with LOCK: return self._send(200, delete_comunicado(int(m.group(1)), self._who()))
+            except Exception as e: return self._send(400, {"error": str(e)})
+        for rx, fn in ((r"/api/papelera/(\d+)$", purge_papelera),
                        (r"/api/clientes/(\d+)$", delete_cliente),
                        (r"/api/suscripciones/(\d+)$", delete_suscripcion),
                        (r"/api/inventarios/(\d+)$", delete_inventario),

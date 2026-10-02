@@ -567,6 +567,14 @@ html.dark mark{background:#6b5600;color:#fdf1b8}
 .stamp-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stamp-date{font-family:var(--font-mono);font-weight:500;opacity:.75;flex:none}
 .revpills{display:flex;gap:2px;align-items:center;flex:none}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-md);padding:12px 16px;box-shadow:var(--shadow-lg);z-index:100;font-size:var(--fs-table);color:var(--text);opacity:0;transform:translateY(8px);transition:.2s}
-.toast.show{opacity:1;transform:none}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface-1);border:1px solid var(--line);border-radius:var(--r-md);padding:12px 16px;box-shadow:var(--shadow-lg);z-index:100;font-size:var(--fs-table);color:var(--text);opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;visibility:hidden}
+.toast.show{opacity:1;transform:none;visibility:visible}
 @media(max-width:900px){.app{grid-template-columns:1fr}.sidebar{position:static;height:auto;flex-direction:row;flex-wrap:wrap}.form-grid{grid-template-columns:1fr}}
+
+/* ---- RBAC: badge de rol y controles ocultos según el rol (el backend también lo exige) ---- */
+.rol-badge{display:inline-block;font-size:var(--fs-caption);font-weight:600;border-radius:var(--r-full);padding:2px 9px;border:1px solid var(--line);color:var(--text-muted);background:var(--surface-2);white-space:nowrap}
+.rol-badge.rol-admin{color:var(--accent,var(--text));border-color:currentColor}
+.rol-badge.rol-editor{color:var(--text)}
+body[data-rol="lector"] :is([onclick^="openForm"],[onclick^="delCom"],[onclick^="archiveCom"],[onclick^="openCliForm"],[onclick^="delCli"],[onclick*="archiveCli"],[onclick^="openSubForm"],[onclick^="delSub"],[onclick^="openSinCliEdit"],[onclick^="delSinCli"],[onclick^="openAsignarCli"],[onclick^="openInvForm"],[onclick^="editInv"],[onclick^="delInv"],[onclick^="syncTodoAzure"],[onclick^="markSelected"],[onclick^="reviewIdx"],[onclick^="restorePap"]),
+body[data-rol="lector"] tr.subadd,
+body[data-rol="lector"] :is(th,td).chk{display:none!important}
