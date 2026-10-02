@@ -19,6 +19,9 @@ echo   (Deja esta ventana abierta mientras la usas)
 echo ================================================
 echo.
 
+REM --- Dependencias (rapido si ya estan instaladas) ---
+python -m pip install -q -r requirements.txt
+
 start "" "http://localhost:8765"
 python app.py 8765
 pause

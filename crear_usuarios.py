@@ -1,22 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-Asegura el roster de miembros y normaliza sus credenciales:
-  - correo     = nombre.apellido@gestionysistemas.com
-  - contraseña = nombre.apellido   (en minúscula, sin tildes)
+Da de alta el roster de miembros con contraseñas TEMPORALES aleatorias.
 
-Es idempotente y seguro para producción:
-  - A cada persona del ROSTER la busca por nombre+apellido (normalizados).
-    Si ya existe, actualiza su correo y contraseña; si no, la crea.
-  - No borra ni toca otros miembros que ya existan fuera del roster.
+  - correo = nombre.apellido@gestionysistemas.com
+  - contraseña: aleatoria, se imprime una sola vez; el miembro debe cambiarla
+    en su primer ingreso (debe_cambiar=1).
+
+Es idempotente: solo crea a quien falte (buscando por nombre+apellido normalizados).
+A los que ya existen no los toca, salvo que se pase --reset (les genera una nueva
+contraseña temporal y cierra sus sesiones).
 
 Toma la conexión de las mismas variables de entorno que app.py
 (DATABASE_URL o PGHOST/PGUSER/PGPASSWORD/PGDATABASE).
 
-Uso:  python crear_usuarios.py
+Uso:  python crear_usuarios.py            # crea los que falten
+      python crear_usuarios.py --reset    # además resetea a los existentes
 """
-import unicodedata
-import pgdb
-from app import hash_pwd
+import secrets
+import sys
+
+from backend import db
+from backend.auth import hash_pwd, slug
 
 DOMINIO = "gestionysistemas.com"
 
@@ -33,37 +37,34 @@ ROSTER = [
 ]
 
 
-def slug(s):
-    """minúsculas, sin tildes ni espacios (para correo/contraseña)."""
-    s = (s or "").strip().lower()
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
-    return s.replace(" ", "")
-
-
 def main():
-    con = pgdb.connect()
-    # índice de los miembros existentes por "nombre.apellido" normalizado
-    existentes = con.execute("SELECT id,nombre,apellido FROM miembros").fetchall()
-    por_nombre = {f"{slug(m['nombre'])}.{slug(m['apellido'])}": m["id"] for m in existentes}
-
-    creados = actualizados = 0
-    for nombre, apellido in ROSTER:
-        base = f"{slug(nombre)}.{slug(apellido)}"
-        correo = f"{base}@{DOMINIO}"
-        pwd_hash = hash_pwd(base)
-        if base in por_nombre:
-            con.execute("UPDATE miembros SET correo=?, pwd=? WHERE id=?",
-                        (correo, pwd_hash, por_nombre[base]))
-            actualizados += 1
-            print(f"  actualizado  {correo:40s}  contraseña: {base}")
-        else:
-            con.execute("INSERT INTO miembros(correo,nombre,apellido,pwd) VALUES(?,?,?,?)",
-                        (correo, nombre, apellido, pwd_hash))
-            creados += 1
-            print(f"  creado       {correo:40s}  contraseña: {base}")
-    con.commit()
-    con.close()
-    print(f"\nListo. {creados} creado(s), {actualizados} actualizado(s).")
+    reset = "--reset" in sys.argv
+    db.ensure_schema()
+    existentes = {f"{slug(m['nombre'])}.{slug(m['apellido'])}": m["id"]
+                  for m in db.rows("SELECT id,nombre,apellido FROM miembros")}
+    creados = reseteados = 0
+    with db.tx() as con:
+        for nombre, apellido in ROSTER:
+            base = f"{slug(nombre)}.{slug(apellido)}"
+            correo = f"{base}@{DOMINIO}"
+            temporal = secrets.token_urlsafe(9)
+            if base in existentes:
+                if not reset:
+                    print(f"  existe       {correo}")
+                    continue
+                con.execute("UPDATE miembros SET pwd=%s, debe_cambiar=1 WHERE id=%s",
+                            (hash_pwd(temporal), existentes[base]))
+                con.execute("DELETE FROM sesiones WHERE miembro_id=%s", (existentes[base],))
+                reseteados += 1
+                print(f"  reseteado    {correo:42s} temporal: {temporal}")
+            else:
+                con.execute("""INSERT INTO miembros(correo,nombre,apellido,pwd,rol,debe_cambiar)
+                               VALUES(%s,%s,%s,%s,'lector',1)""",
+                            (correo, nombre, apellido, hash_pwd(temporal)))
+                creados += 1
+                print(f"  creado       {correo:42s} temporal: {temporal}")
+    print(f"\nListo. {creados} creado(s), {reseteados} reseteado(s). "
+          "Comparte cada contraseña temporal por un canal privado.")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: app-upgrade-ms-api-dev
+  AZURE_WEBAPP_NAME: app-upgrade-ms-prod-lrwgmi
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Verificar que compila
-        run: python -m py_compile app.py pgdb.py import_excel.py
+        run: python -m compileall -q app.py backend crear_usuarios.py
 
       - name: Deploy a Azure Web App
         uses: azure/webapps-deploy@v3
