@@ -59,6 +59,10 @@ az deployment group create -g rg-upgrade-ms-prod -f infra/main.bicep -p infra/ma
 
 Anota las salidas `webAppName`, `webAppUrl` y `pgHost`.
 
+> Si PostgreSQL falla con **CapacityNotAvailable**, fija una zona y reintenta:
+> `$env:PG_ZONE = "2"` (prueba 1, 2 o 3). En la suscripción *Proyectos Internos* (Central US)
+> funcionó la zona 2.
+>
 > Para cambiar región, tamaños o nombres edita `main.bicepparam`
 > (p. ej. `appServiceSku = 'B2'`, o `pgSkuName = 'Standard_D2ds_v5'` con `pgSkuTier = 'GeneralPurpose'`).
 > Volver a ejecutar el despliegue es seguro: solo aplica las diferencias.

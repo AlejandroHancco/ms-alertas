@@ -9,6 +9,8 @@ param appServiceSku = 'B1'
 param pgSkuName = 'Standard_B1ms'
 param pgSkuTier = 'Burstable'
 param pgStorageGB = 32
+// Zona fija: en esta suscripción Central US devolvió CapacityNotAvailable sin zona.
+param pgAvailabilityZone = readEnvironmentVariable('PG_ZONE', '')
 param pgAdminUser = 'pgadmin'
 param pgAdminPassword = readEnvironmentVariable('PG_ADMIN_PASSWORD')
 param adminCorreo = 'alejandro.hancco@gestionysistemas.com'

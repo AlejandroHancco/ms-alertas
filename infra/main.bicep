@@ -58,6 +58,9 @@ param pgStorageGB int = 32
 @maxValue(35)
 param pgBackupRetentionDays int = 7
 
+@description('Zona de disponibilidad de PostgreSQL (1, 2 o 3). Vacío = la elige Azure. Útil si una zona responde CapacityNotAvailable.')
+param pgAvailabilityZone string = ''
+
 @description('Nombre de la base de datos de la plataforma.')
 param pgDatabaseName string = 'upgrade_ms'
 
@@ -89,6 +92,7 @@ resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   }
   properties: {
     version: pgVersion
+    availabilityZone: empty(pgAvailabilityZone) ? null : pgAvailabilityZone
     administratorLogin: pgAdminUser
     administratorLoginPassword: pgAdminPassword
     storage: {
